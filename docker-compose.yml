@@ -1,0 +1,83 @@
+# Removed version (obsolete in newer Docker Compose)
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: thieunhi-postgres-local
+    restart: unless-stopped
+    environment:
+      # Thông tin đăng nhập database
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: thieunhi123
+      POSTGRES_DB: thieunhi_local
+      
+      # Cấu hình encoding
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+      
+      # Timezone
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      # Host:Container - Có thể truy cập từ localhost:5432
+      - "5432:5432"
+    volumes:
+      # Persist data ngay cả khi container bị xóa
+      - postgres_data:/var/lib/postgresql/data
+      
+      # Mount thư mục init scripts (optional)
+      - ./docker/init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - thieunhi-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d thieunhi_local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # PgAdmin - Web interface cho PostgreSQL
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: thieunhi-pgadmin
+    restart: unless-stopped
+    environment:
+      # Thông tin đăng nhập PgAdmin
+      PGADMIN_DEFAULT_EMAIL: admin@thieunhi.local
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      
+      # Cấu hình PgAdmin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+      
+      # Disable analytics
+      PGADMIN_DISABLE_POSTFIX: 'True'
+    ports:
+      # Truy cập PgAdmin tại http://localhost:8081
+      - "8081:80"
+    volumes:
+      # Persist PgAdmin settings
+      - pgadmin_data:/var/lib/pgadmin
+      
+      # Pre-configure servers (optional)
+      - ./docker/pgadmin-servers.json:/pgadmin4/servers.json
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - thieunhi-network
+
+# Volumes để persist data
+volumes:
+  postgres_data:
+    driver: local
+    name: thieunhi_postgres_data
+    
+  pgadmin_data:
+    driver: local
+    name: thieunhi_pgadmin_data
+
+# Network cho các containers
+networks:
+  thieunhi-network:
+    driver: bridge
+    name: thieunhi_network

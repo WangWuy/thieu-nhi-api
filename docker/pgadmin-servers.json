@@ -1,0 +1,15 @@
+{
+    "Servers": {
+        "1": {
+            "Name": "ThieuNhi Local",
+            "Group": "Development",
+            "Host": "postgres",
+            "Port": 5432,
+            "MaintenanceDB": "thieunhi_local",
+            "Username": "postgres",
+            "Password": "thieunhi123",
+            "SSLMode": "prefer",
+            "Favorite": true
+        }
+    }
+}

@@ -1,0 +1,155 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Department {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique // 'CHIEN', 'AU', 'THIEU', 'NGHIA'
+  displayName String   @map("display_name")
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  users       User[]
+  classes     Class[]
+  weeklyStats WeeklyStat[]
+
+  @@map("departments")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String   @map("password_hash")
+  role         UserRole
+  saintName    String?  @map("saint_name")
+  fullName     String   @map("full_name")
+  birthDate    DateTime? @map("birth_date")
+  phoneNumber  String?  @map("phone_number")
+  address      String?
+  departmentId Int?     @map("department_id")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  department       Department? @relation(fields: [departmentId], references: [id])
+  classTeachers    ClassTeacher[]
+  attendanceMarked Attendance[] @relation("MarkedBy")
+
+  @@map("users")
+}
+
+model Class {
+  id           Int      @id @default(autoincrement())
+  name         String
+  departmentId Int      @map("department_id")
+  teacherId    Int?     @map("teacher_id")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  department    Department     @relation(fields: [departmentId], references: [id])
+  classTeachers ClassTeacher[]
+  students      Student[]
+  weeklyStats   WeeklyStat[]
+
+  @@map("classes")
+}
+
+model Student {
+  id               Int      @id @default(autoincrement())
+  studentCode      String   @unique @map("student_code")
+  qrCode           String?  @map("qr_code")
+  saintName        String?  @map("saint_name")
+  fullName         String   @map("full_name")
+  birthDate        DateTime? @map("birth_date")
+  phoneNumber      String?  @map("phone_number")
+  parentPhone1     String?  @map("parent_phone_1")
+  parentPhone2     String?  @map("parent_phone_2")
+  address          String?
+  classId          Int      @map("class_id")
+  attendanceScore  Decimal  @default(0) @map("attendance_score") @db.Decimal(3,1)
+  studyScore       Decimal  @default(0) @map("study_score") @db.Decimal(3,1)
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  class      Class        @relation(fields: [classId], references: [id])
+  attendance Attendance[]
+
+  @@map("students")
+}
+
+model Attendance {
+  id             Int            @id @default(autoincrement())
+  studentId      Int            @map("student_id")
+  attendanceDate DateTime       @map("attendance_date") @db.Date
+  attendanceType AttendanceType @map("attendance_type")
+  isPresent      Boolean        @map("is_present")
+  note           String?
+  markedBy       Int?           @map("marked_by")
+  markedAt       DateTime       @default(now()) @map("marked_at")
+
+  // Relations
+  student Student @relation(fields: [studentId], references: [id])
+  marker  User?   @relation("MarkedBy", fields: [markedBy], references: [id])
+
+  @@unique([studentId, attendanceDate, attendanceType])
+  @@map("attendance")
+}
+
+model WeeklyStat {
+  id                Int      @id @default(autoincrement())
+  weekStartDate     DateTime @map("week_start_date") @db.Date
+  weekEndDate       DateTime @map("week_end_date") @db.Date
+  departmentId      Int?     @map("department_id")
+  classId           Int?     @map("class_id")
+  totalStudents     Int      @map("total_students")
+  thursdayAttendance Int     @map("thursday_attendance")
+  sundayAttendance  Int      @map("sunday_attendance")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  // Relations
+  department Department? @relation(fields: [departmentId], references: [id])
+  class      Class?      @relation(fields: [classId], references: [id])
+
+  @@map("weekly_stats")
+}
+
+model ClassTeacher {
+  id        Int      @id @default(autoincrement())
+  classId   Int      @map("class_id")
+  userId    Int      @map("user_id")
+  isPrimary Boolean  @default(false) @map("is_primary") // Giáo viên chính
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  class Class @relation(fields: [classId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, userId])
+  @@map("class_teachers")
+}
+
+enum UserRole {
+  ban_dieu_hanh
+  phan_doan_truong
+  giao_ly_vien
+}
+
+enum AttendanceType {
+  thursday
+  sunday
+}

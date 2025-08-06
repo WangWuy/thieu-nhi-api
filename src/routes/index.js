@@ -7,6 +7,9 @@ const departmentController = require('../controllers/departmentController');
 const userController = require('../controllers/userController');
 const importController = require('../controllers/importController');
 const dashboardController = require('../controllers/dashboardController');
+const academicYearController = require('../controllers/academicYearController');
+const ScoreService = require('../services/scoreService');
+const reportsController = require('../controllers/reportsController');
 
 const { verifyToken, requireRole, requireAdmin } = require('../middleware/auth');
 
@@ -217,6 +220,7 @@ router.get('/classes/:classId/students',
     studentController.getStudentsByClass
 );
 
+
 // ==================== ATTENDANCE ROUTES ====================
 router.post('/attendance',
     attendanceLimiter,
@@ -297,6 +301,154 @@ router.get('/import/stats',
     apiLimiter,
     verifyToken,
     // importController.getImportStats
+);
+
+// ==================== ACADEMIC YEAR ROUTES ====================
+router.get('/academic-years',
+    apiLimiter,
+    verifyToken,
+    academicYearController.getAcademicYears
+);
+
+router.get('/academic-years/current',
+    apiLimiter,
+    verifyToken,
+    academicYearController.getCurrentAcademicYear
+);
+
+router.post('/academic-years',
+    apiLimiter,
+    verifyToken,
+    requireAdmin,
+    // academicYearValidation.create, // Tạo validation sau
+    academicYearController.createAcademicYear
+);
+
+router.put('/academic-years/:id',
+    apiLimiter,
+    verifyToken,
+    requireAdmin,
+    // academicYearValidation.update,
+    academicYearController.updateAcademicYear
+);
+
+router.post('/academic-years/:id/set-current',
+    strictLimiter,
+    verifyToken,
+    requireAdmin,
+    academicYearController.setCurrentAcademicYear
+);
+
+router.delete('/academic-years/:id',
+    strictLimiter,
+    verifyToken,
+    requireAdmin,
+    academicYearController.deleteAcademicYear
+);
+
+router.get('/academic-years/:id/stats',
+    apiLimiter,
+    verifyToken,
+    academicYearController.getAcademicYearStats
+);
+
+// ==================== SCORE MANAGEMENT ROUTES ====================
+router.put('/students/:id/scores',
+    apiLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
+    // scoreValidation.update, // Tạo validation sau
+    async (req, res) => {
+        try {
+            const { id } = req.params;
+            const updatedStudent = await ScoreService.updateStudentScores(parseInt(id), req.body);
+            res.json(updatedStudent);
+        } catch (error) {
+            console.error('Update scores error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+);
+
+router.post('/academic-years/:id/recalculate-scores',
+    strictLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
+    async (req, res) => {
+        try {
+            const { id } = req.params;
+            const result = await ScoreService.recalculateAcademicYearScores(parseInt(id));
+            res.json(result);
+        } catch (error) {
+            console.error('Recalculate scores error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+);
+
+router.get('/classes/:id/score-stats',
+    apiLimiter,
+    verifyToken,
+    async (req, res) => {
+        try {
+            const { id } = req.params;
+            const stats = await ScoreService.getClassScoreStats(parseInt(id));
+            res.json(stats);
+        } catch (error) {
+            console.error('Get class score stats error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+);
+
+router.get('/students/:id/score-details',
+    apiLimiter,
+    verifyToken,
+    studentController.getStudentScoreDetails
+);
+
+router.post('/students/bulk-update-scores',
+    strictLimiter, // Bulk operations need stricter limits
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
+    studentController.bulkUpdateScores
+);
+
+// ==================== REPORTS ROUTES ====================
+router.get('/reports/attendance',
+    apiLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
+    queryValidation.dateRange,
+    reportsController.getAttendanceReport
+);
+
+router.get('/reports/grade-distribution',
+    apiLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
+    reportsController.getGradeDistribution
+);
+
+router.get('/reports/student-ranking',
+    apiLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
+    reportsController.getStudentRanking
+);
+
+router.get('/reports/overview',
+    apiLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
+    reportsController.getOverviewReport
+);
+
+router.get('/reports/export',
+    strictLimiter, // Export operations should be limited
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
+    reportsController.exportReport
 );
 
 // ==================== TEST & HEALTH ROUTES ====================

@@ -1,8 +1,9 @@
 const { PrismaClient } = require('@prisma/client');
+const ScoreService = require('../services/scoreService');
 const prisma = new PrismaClient();
 
 const attendanceController = {
-    // Mark attendance
+    // Mark attendance with auto score update
     async markAttendance(req, res) {
         try {
             const { studentId, attendanceDate, attendanceType, isPresent, note } = req.body;
@@ -40,6 +41,9 @@ const attendanceController = {
                 }
             });
 
+            // Recalculate attendance count from database
+            await this.updateAttendanceCount(parseInt(studentId));
+
             res.json(attendance);
         } catch (error) {
             console.error('Mark attendance error:', error);
@@ -47,7 +51,108 @@ const attendanceController = {
         }
     },
 
-    // Get attendance by date and class
+    // Batch mark attendance with auto score update
+    async batchMarkAttendance(req, res) {
+        try {
+            const { classId } = req.params;
+            const { attendanceDate, attendanceType, attendanceRecords } = req.body;
+
+            if (!attendanceDate || !attendanceType || !attendanceRecords || !Array.isArray(attendanceRecords)) {
+                return res.status(400).json({ error: 'Dữ liệu điểm danh không hợp lệ' });
+            }
+
+            const results = [];
+            const affectedStudents = new Set();
+
+            for (const record of attendanceRecords) {
+                try {
+                    // Upsert attendance
+                    const attendance = await prisma.attendance.upsert({
+                        where: {
+                            studentId_attendanceDate_attendanceType: {
+                                studentId: record.studentId,
+                                attendanceDate: new Date(attendanceDate),
+                                attendanceType
+                            }
+                        },
+                        update: {
+                            isPresent: record.isPresent,
+                            note: record.note || null,
+                            markedBy: req.user.userId,
+                            markedAt: new Date()
+                        },
+                        create: {
+                            studentId: record.studentId,
+                            attendanceDate: new Date(attendanceDate),
+                            attendanceType,
+                            isPresent: record.isPresent,
+                            note: record.note || null,
+                            markedBy: req.user.userId
+                        }
+                    });
+
+                    results.push(attendance);
+                    affectedStudents.add(record.studentId);
+                } catch (recordError) {
+                    console.error(`Error processing record for student ${record.studentId}:`, recordError);
+                }
+            }
+
+            // Update attendance counts for all affected students
+            for (const studentId of affectedStudents) {
+                try {
+                    await this.updateAttendanceCount(studentId);
+                } catch (scoreError) {
+                    console.error(`Score update error for student ${studentId}:`, scoreError);
+                }
+            }
+
+            res.json({
+                message: 'Điểm danh thành công',
+                count: results.length,
+                affectedStudents: affectedStudents.size,
+                records: results
+            });
+        } catch (error) {
+            console.error('Batch mark attendance error:', error);
+            res.status(500).json({ error: 'Lỗi server' });
+        }
+    },
+
+    // Update attendance count by counting from database - OPTIMAL SOLUTION
+    async updateAttendanceCount(studentId) {
+        try {
+            // Count actual attendance records from database
+            const [thursdayCount, sundayCount] = await Promise.all([
+                prisma.attendance.count({
+                    where: {
+                        studentId: studentId,
+                        attendanceType: 'thursday',
+                        isPresent: true
+                    }
+                }),
+                prisma.attendance.count({
+                    where: {
+                        studentId: studentId,
+                        attendanceType: 'sunday', 
+                        isPresent: true
+                    }
+                })
+            ]);
+
+            // Update student with actual counts and recalculate scores
+            await ScoreService.updateStudentScores(studentId, {
+                thursdayAttendanceCount: thursdayCount,
+                sundayAttendanceCount: sundayCount
+            });
+
+        } catch (error) {
+            console.error('Update attendance count error:', error);
+            throw error;
+        }
+    },
+
+    // Get attendance by date and class (unchanged)
     async getAttendanceByClass(req, res) {
         try {
             const { classId } = req.params;
@@ -85,7 +190,7 @@ const attendanceController = {
         }
     },
 
-    // Get attendance statistics
+    // Get attendance statistics (unchanged)
     async getAttendanceStats(req, res) {
         try {
             const { role, departmentId } = req.user;
@@ -136,56 +241,7 @@ const attendanceController = {
         }
     },
 
-    // Batch mark attendance for entire class
-    async batchMarkAttendance(req, res) {
-        try {
-            const { classId } = req.params;
-            const { attendanceDate, attendanceType, attendanceRecords } = req.body;
-
-            if (!attendanceDate || !attendanceType || !attendanceRecords || !Array.isArray(attendanceRecords)) {
-                return res.status(400).json({ error: 'Dữ liệu điểm danh không hợp lệ' });
-            }
-
-            const attendancePromises = attendanceRecords.map(record =>
-                prisma.attendance.upsert({
-                    where: {
-                        studentId_attendanceDate_attendanceType: {
-                            studentId: record.studentId,
-                            attendanceDate: new Date(attendanceDate),
-                            attendanceType
-                        }
-                    },
-                    update: {
-                        isPresent: record.isPresent,
-                        note: record.note || null,
-                        markedBy: req.user.userId,
-                        markedAt: new Date()
-                    },
-                    create: {
-                        studentId: record.studentId,
-                        attendanceDate: new Date(attendanceDate),
-                        attendanceType,
-                        isPresent: record.isPresent,
-                        note: record.note || null,
-                        markedBy: req.user.userId
-                    }
-                })
-            );
-
-            const results = await Promise.all(attendancePromises);
-
-            res.json({
-                message: 'Điểm danh thành công',
-                count: results.length,
-                records: results
-            });
-        } catch (error) {
-            console.error('Batch mark attendance error:', error);
-            res.status(500).json({ error: 'Lỗi server' });
-        }
-    },
-
-    // Get attendance trend by date range
+    // Get attendance trend by date range (unchanged)
     async getAttendanceTrend(req, res) {
         try {
             const { role, departmentId } = req.user;

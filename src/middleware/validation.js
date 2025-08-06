@@ -134,71 +134,194 @@ const studentValidation = {
         body('studentCode')
             .notEmpty()
             .withMessage('Mã học sinh là bắt buộc')
-            .matches(/^TN[0-9]{4}$/)
-            .withMessage('Mã học sinh phải có format TNxxxx (4 số)'),
+            .isLength({ min: 3, max: 20 })
+            .withMessage('Mã học sinh phải từ 3-20 ký tự'),
+        
         body('fullName')
             .notEmpty()
             .withMessage('Họ tên là bắt buộc')
             .isLength({ min: 2, max: 100 })
             .withMessage('Họ tên phải từ 2-100 ký tự'),
+        
+        body('classId')
+            .notEmpty()
+            .withMessage('Lớp là bắt buộc')
+            .isInt({ min: 1 })
+            .withMessage('ID lớp không hợp lệ'),
+        
         body('saintName')
             .optional()
             .isLength({ max: 50 })
             .withMessage('Tên thánh không được quá 50 ký tự'),
-        body('classId')
-            .isInt({ min: 1 })
-            .withMessage('Lớp học là bắt buộc'),
+        
         body('birthDate')
             .optional()
             .isISO8601()
-            .withMessage('Ngày sinh không hợp lệ')
-            .custom((value) => {
-                if (value) {
-                    const birthDate = new Date(value);
-                    const today = new Date();
-                    const age = today.getFullYear() - birthDate.getFullYear();
-                    if (age < 5 || age > 18) {
-                        throw new Error('Tuổi học sinh phải từ 5-18');
-                    }
-                }
-                return true;
-            }),
+            .withMessage('Ngày sinh không hợp lệ'),
+        
         body('phoneNumber')
             .optional()
-            .matches(/^(\+84|0)[3|5|7|8|9][0-9]{8}$/)
+            .isMobilePhone('vi-VN')
             .withMessage('Số điện thoại không hợp lệ'),
+        
         body('parentPhone1')
             .optional()
-            .matches(/^(\+84|0)[3|5|7|8|9][0-9]{8}$/)
+            .isMobilePhone('vi-VN')
             .withMessage('Số điện thoại phụ huynh 1 không hợp lệ'),
+        
         body('parentPhone2')
             .optional()
-            .matches(/^(\+84|0)[3|5|7|8|9][0-9]{8}$/)
+            .isMobilePhone('vi-VN')
             .withMessage('Số điện thoại phụ huynh 2 không hợp lệ'),
-        handleValidationErrors
+        
+        body('academicYearId')
+            .optional()
+            .isInt({ min: 1 })
+            .withMessage('ID năm học không hợp lệ'),
+        
+        // Score fields for create (optional, will default to 0)
+        body('thursdayAttendanceCount')
+            .optional()
+            .isInt({ min: 0, max: 100 })
+            .withMessage('Số buổi điểm danh thứ 5 phải từ 0-100'),
+        
+        body('sundayAttendanceCount')
+            .optional()
+            .isInt({ min: 0, max: 100 })
+            .withMessage('Số buổi điểm danh chủ nhật phải từ 0-100'),
+        
+        body('study45Hk1')
+            .optional()
+            .isFloat({ min: 0, max: 10 })
+            .withMessage('Điểm 45 phút HK1 phải từ 0-10'),
+        
+        body('examHk1')
+            .optional()
+            .isFloat({ min: 0, max: 10 })
+            .withMessage('Điểm thi HK1 phải từ 0-10'),
+        
+        body('study45Hk2')
+            .optional()
+            .isFloat({ min: 0, max: 10 })
+            .withMessage('Điểm 45 phút HK2 phải từ 0-10'),
+        
+        body('examHk2')
+            .optional()
+            .isFloat({ min: 0, max: 10 })
+            .withMessage('Điểm thi HK2 phải từ 0-10'),
+        
+        (req, res, next) => {
+            const errors = validationResult(req);
+            if (!errors.isEmpty()) {
+                return res.status(400).json({
+                    error: 'Validation Error',
+                    details: errors.array()
+                });
+            }
+            next();
+        }
     ],
 
     update: [
         param('id')
             .isInt({ min: 1 })
-            .withMessage('Student ID không hợp lệ'),
+            .withMessage('ID học sinh không hợp lệ'),
+        
+        body('studentCode')
+            .optional()
+            .isLength({ min: 3, max: 20 })
+            .withMessage('Mã học sinh phải từ 3-20 ký tự'),
+        
         body('fullName')
             .optional()
             .isLength({ min: 2, max: 100 })
             .withMessage('Họ tên phải từ 2-100 ký tự'),
+        
         body('classId')
             .optional()
             .isInt({ min: 1 })
-            .withMessage('Lớp học không hợp lệ'),
+            .withMessage('ID lớp không hợp lệ'),
+        
+        body('saintName')
+            .optional()
+            .isLength({ max: 50 })
+            .withMessage('Tên thánh không được quá 50 ký tự'),
+        
         body('birthDate')
             .optional()
             .isISO8601()
             .withMessage('Ngày sinh không hợp lệ'),
+        
         body('phoneNumber')
             .optional()
-            .matches(/^(\+84|0)[3|5|7|8|9][0-9]{8}$/)
+            .isMobilePhone('vi-VN')
             .withMessage('Số điện thoại không hợp lệ'),
-        handleValidationErrors
+        
+        body('parentPhone1')
+            .optional()
+            .isMobilePhone('vi-VN')
+            .withMessage('Số điện thoại phụ huynh 1 không hợp lệ'),
+        
+        body('parentPhone2')
+            .optional()
+            .isMobilePhone('vi-VN')
+            .withMessage('Số điện thoại phụ huynh 2 không hợp lệ'),
+        
+        body('academicYearId')
+            .optional()
+            .isInt({ min: 1 })
+            .withMessage('ID năm học không hợp lệ'),
+        
+        // Score fields for update
+        body('thursdayAttendanceCount')
+            .optional()
+            .isInt({ min: 0, max: 100 })
+            .withMessage('Số buổi điểm danh thứ 5 phải từ 0-100'),
+        
+        body('sundayAttendanceCount')
+            .optional()
+            .isInt({ min: 0, max: 100 })
+            .withMessage('Số buổi điểm danh chủ nhật phải từ 0-100'),
+        
+        body('study45Hk1')
+            .optional()
+            .isFloat({ min: 0, max: 10 })
+            .withMessage('Điểm 45 phút HK1 phải từ 0-10'),
+        
+        body('examHk1')
+            .optional()
+            .isFloat({ min: 0, max: 10 })
+            .withMessage('Điểm thi HK1 phải từ 0-10'),
+        
+        body('study45Hk2')
+            .optional()
+            .isFloat({ min: 0, max: 10 })
+            .withMessage('Điểm 45 phút HK2 phải từ 0-10'),
+        
+        body('examHk2')
+            .optional()
+            .isFloat({ min: 0, max: 10 })
+            .withMessage('Điểm thi HK2 phải từ 0-10'),
+        
+        // Prevent manual update of calculated fields
+        body(['attendanceAverage', 'studyAverage', 'finalAverage'])
+            .custom((value, { path }) => {
+                if (value !== undefined) {
+                    throw new Error(`${path} được tính tự động, không thể cập nhật thủ công`);
+                }
+                return true;
+            }),
+        
+        (req, res, next) => {
+            const errors = validationResult(req);
+            if (!errors.isEmpty()) {
+                return res.status(400).json({
+                    error: 'Validation Error',
+                    details: errors.array()
+                });
+            }
+            next();
+        }
     ]
 };
 
@@ -369,6 +492,140 @@ const queryValidation = {
     ]
 };
 
+const academicYearValidation = {
+    // Validation for creating academic year
+    create: [
+        body('name')
+            .notEmpty()
+            .withMessage('Tên năm học là bắt buộc')
+            .isLength({ min: 3, max: 20 })
+            .withMessage('Tên năm học phải từ 3-20 ký tự')
+            .matches(/^\d{4}-\d{4}$/)
+            .withMessage('Tên năm học phải theo format YYYY-YYYY (ví dụ: 2024-2025)'),
+        
+        body('startDate')
+            .notEmpty()
+            .withMessage('Ngày bắt đầu là bắt buộc')
+            .isISO8601()
+            .withMessage('Ngày bắt đầu không hợp lệ'),
+        
+        body('endDate')
+            .notEmpty()
+            .withMessage('Ngày kết thúc là bắt buộc')
+            .isISO8601()
+            .withMessage('Ngày kết thúc không hợp lệ')
+            .custom((endDate, { req }) => {
+                if (new Date(endDate) <= new Date(req.body.startDate)) {
+                    throw new Error('Ngày kết thúc phải sau ngày bắt đầu');
+                }
+                return true;
+            }),
+        
+        // Handle validation errors
+        (req, res, next) => {
+            const errors = validationResult(req);
+            if (!errors.isEmpty()) {
+                return res.status(400).json({
+                    error: 'Validation Error',
+                    details: errors.array()
+                });
+            }
+            next();
+        }
+    ],
+
+    // Validation for updating academic year
+    update: [
+        param('id')
+            .isInt({ min: 1 })
+            .withMessage('ID năm học không hợp lệ'),
+        
+        body('name')
+            .optional()
+            .isLength({ min: 3, max: 20 })
+            .withMessage('Tên năm học phải từ 3-20 ký tự')
+            .matches(/^\d{4}-\d{4}$/)
+            .withMessage('Tên năm học phải theo format YYYY-YYYY'),
+        
+        body('startDate')
+            .optional()
+            .isISO8601()
+            .withMessage('Ngày bắt đầu không hợp lệ'),
+        
+        body('endDate')
+            .optional()
+            .isISO8601()
+            .withMessage('Ngày kết thúc không hợp lệ')
+            .custom((endDate, { req }) => {
+                if (req.body.startDate && new Date(endDate) <= new Date(req.body.startDate)) {
+                    throw new Error('Ngày kết thúc phải sau ngày bắt đầu');
+                }
+                return true;
+            }),
+        
+        (req, res, next) => {
+            const errors = validationResult(req);
+            if (!errors.isEmpty()) {
+                return res.status(400).json({
+                    error: 'Validation Error',
+                    details: errors.array()
+                });
+            }
+            next();
+        }
+    ]
+};
+
+const scoreValidation = {
+    // Validation for updating student scores
+    update: [
+        param('id')
+            .isInt({ min: 1 })
+            .withMessage('ID học sinh không hợp lệ'),
+        
+        body('thursdayAttendanceCount')
+            .optional()
+            .isInt({ min: 0, max: 100 })
+            .withMessage('Số buổi điểm danh thứ 5 phải từ 0-100'),
+        
+        body('sundayAttendanceCount')
+            .optional()
+            .isInt({ min: 0, max: 100 })
+            .withMessage('Số buổi điểm danh chủ nhật phải từ 0-100'),
+        
+        body('study45Hk1')
+            .optional()
+            .isFloat({ min: 0, max: 10 })
+            .withMessage('Điểm 45 phút HK1 phải từ 0-10'),
+        
+        body('examHk1')
+            .optional()
+            .isFloat({ min: 0, max: 10 })
+            .withMessage('Điểm thi HK1 phải từ 0-10'),
+        
+        body('study45Hk2')
+            .optional()
+            .isFloat({ min: 0, max: 10 })
+            .withMessage('Điểm 45 phút HK2 phải từ 0-10'),
+        
+        body('examHk2')
+            .optional()
+            .isFloat({ min: 0, max: 10 })
+            .withMessage('Điểm thi HK2 phải từ 0-10'),
+        
+        (req, res, next) => {
+            const errors = validationResult(req);
+            if (!errors.isEmpty()) {
+                return res.status(400).json({
+                    error: 'Validation Error',
+                    details: errors.array()
+                });
+            }
+            next();
+        }
+    ]
+};
+
 module.exports = {
     authValidation,
     userValidation,
@@ -376,5 +633,7 @@ module.exports = {
     classValidation,
     attendanceValidation,
     queryValidation,
+    academicYearValidation,
+    scoreValidation,
     handleValidationErrors
 };

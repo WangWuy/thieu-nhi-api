@@ -444,6 +444,73 @@ const attendanceValidation = {
             .isBoolean()
             .withMessage('isPresent phải là boolean'),
         handleValidationErrors
+    ],
+
+    getStudentHistory: [
+        param('id')
+            .isInt({ min: 1 })
+            .withMessage('Student ID không hợp lệ'),
+        
+        query('page')
+            .optional()
+            .isInt({ min: 1 })
+            .withMessage('Page phải là số nguyên dương'),
+        
+        query('limit')
+            .optional()
+            .isInt({ min: 1, max: 200 })
+            .withMessage('Limit phải từ 1-200'),
+        
+        query('startDate')
+            .optional()
+            .isISO8601()
+            .withMessage('Start date không hợp lệ (YYYY-MM-DD)'),
+        
+        query('endDate')
+            .optional()
+            .isISO8601()
+            .withMessage('End date không hợp lệ (YYYY-MM-DD)')
+            .custom((endDate, { req }) => {
+                if (req.query.startDate && endDate) {
+                    const start = new Date(req.query.startDate);
+                    const end = new Date(endDate);
+                    if (end < start) {
+                        throw new Error('End date phải sau start date');
+                    }
+                }
+                return true;
+            }),
+        
+        query('type')
+            .optional()
+            .isIn(['thursday', 'sunday'])
+            .withMessage('Type phải là thursday hoặc sunday'),
+        
+        query('status')
+            .optional()
+            .isIn(['present', 'absent'])
+            .withMessage('Status phải là present hoặc absent'),
+        
+        query('month')
+            .optional()
+            .matches(/^\d{4}-\d{2}$/)
+            .withMessage('Month phải theo format YYYY-MM (ví dụ: 2024-03)'),
+        
+        handleValidationErrors
+    ],
+
+    // NEW: Student attendance stats validation  
+    getStudentStats: [
+        param('id')
+            .isInt({ min: 1 })
+            .withMessage('Student ID không hợp lệ'),
+        
+        query('year')
+            .optional()
+            .isInt({ min: 2020, max: 2030 })
+            .withMessage('Year phải từ 2020-2030'),
+        
+        handleValidationErrors
     ]
 };
 

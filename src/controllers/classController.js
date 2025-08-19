@@ -5,12 +5,27 @@ const classController = {
     // Get all classes (filtered by role)
     async getClasses(req, res) {
         try {
-            const { role, departmentId } = req.user;
-
+            const { role, departmentId: userDepartmentId } = req.user;
+            const { departmentId, search } = req.query; // Thêm query params
+    
             let whereClause = { isActive: true };
-
+    
+            // Role-based filtering (giữ nguyên logic cũ)
             if (role === 'phan_doan_truong') {
-                whereClause.departmentId = departmentId;
+                whereClause.departmentId = userDepartmentId;
+            }
+    
+            // Thêm department filter cho admin/other roles
+            if (departmentId && role !== 'phan_doan_truong') {
+                whereClause.departmentId = parseInt(departmentId);
+            }
+    
+            // Thêm search filter (bonus)
+            if (search) {
+                whereClause.name = {
+                    contains: search,
+                    mode: 'insensitive'
+                };
             }
 
             const classes = await prisma.class.findMany({
@@ -29,7 +44,7 @@ const classController = {
                     }
                 },
                 orderBy: [
-                    { department: { name: 'asc' } },
+                    { department: { id: 'asc' } },
                     { name: 'asc' }
                 ]
             });

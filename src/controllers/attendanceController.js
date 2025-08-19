@@ -51,78 +51,278 @@ const attendanceController = {
         }
     },
 
-    // Batch mark attendance with auto score update
+    // ✅ FIXED: Batch mark attendance with flexible student code matching
     async batchMarkAttendance(req, res) {
         try {
             const { classId } = req.params;
             const { attendanceDate, attendanceType, attendanceRecords } = req.body;
 
-            if (!attendanceDate || !attendanceType || !attendanceRecords || !Array.isArray(attendanceRecords)) {
+            if (!attendanceDate || !attendanceType || !Array.isArray(attendanceRecords)) {
                 return res.status(400).json({ error: 'Dữ liệu điểm danh không hợp lệ' });
             }
 
-            const results = [];
-            const affectedStudents = new Set();
-
-            for (const record of attendanceRecords) {
-                try {
-                    // Upsert attendance
-                    const attendance = await prisma.attendance.upsert({
-                        where: {
-                            studentId_attendanceDate_attendanceType: {
-                                studentId: record.studentId,
-                                attendanceDate: new Date(attendanceDate),
-                                attendanceType
-                            }
-                        },
-                        update: {
-                            isPresent: record.isPresent,
-                            note: record.note || null,
-                            markedBy: req.user.userId,
-                            markedAt: new Date()
-                        },
-                        create: {
-                            studentId: record.studentId,
-                            attendanceDate: new Date(attendanceDate),
-                            attendanceType,
-                            isPresent: record.isPresent,
-                            note: record.note || null,
-                            markedBy: req.user.userId
-                        }
-                    });
-
-                    results.push(attendance);
-                    affectedStudents.add(record.studentId);
-                } catch (recordError) {
-                    console.error(`Error processing record for student ${record.studentId}:`, recordError);
-                }
-            }
-
-            // Update attendance counts for all affected students
-            for (const studentId of affectedStudents) {
-                try {
-                    await this.updateAttendanceCount(studentId);
-                } catch (scoreError) {
-                    console.error(`Score update error for student ${studentId}:`, scoreError);
-                }
-            }
-
-            res.json({
-                message: 'Điểm danh thành công',
-                count: results.length,
-                affectedStudents: affectedStudents.size,
-                records: results
+            console.log('📥 Batch attendance request:', {
+                classId,
+                attendanceDate,
+                attendanceType,
+                recordCount: attendanceRecords.length,
+                records: attendanceRecords
             });
+
+            // ✅ VALIDATE: Check if class exists
+            const classObj = await prisma.class.findUnique({
+                where: { id: parseInt(classId) },
+                include: { department: true }
+            });
+
+            if (!classObj) {
+                return res.status(404).json({ error: 'Không tìm thấy lớp học' });
+            }
+
+            // ✅ FIXED: Handle both full codes and partial numbers - FLEXIBLE SEARCH
+            const inputCodes = attendanceRecords.map(record => record.studentId.toString());
+            const expandedCodes = [];
+            
+            inputCodes.forEach(code => {
+                expandedCodes.push(code); // Original input
+                
+                // If it's just numbers, try common prefixes
+                if (/^\d+$/.test(code)) {
+                    const prefixes = ['TA', 'TN', 'TC', 'TT', 'LP'];
+                    prefixes.forEach(prefix => {
+                        expandedCodes.push(`${prefix}${code}`);
+                    });
+                }
+                
+                // Also try with LP prefix removed (reverse case)
+                if (code.startsWith('LP')) {
+                    expandedCodes.push(code.substring(2));
+                }
+            });
+            
+            console.log('🔍 Looking for students with expanded codes:', expandedCodes);
+
+            // ✅ Find students by expanded search
+            const validStudents = await prisma.student.findMany({
+                where: {
+                    studentCode: { in: expandedCodes },
+                    classId: parseInt(classId),
+                    isActive: true
+                },
+                select: { id: true, fullName: true, studentCode: true }
+            });
+
+            console.log('✅ Found valid students:', validStudents);
+
+            // ✅ Create mapping: original input → actual student
+            const inputToStudent = new Map();
+            inputCodes.forEach(originalInput => {
+                // Find matching student - try exact match first, then partial
+                let student = validStudents.find(s => s.studentCode === originalInput);
+                
+                if (!student) {
+                    // Try partial matching
+                    student = validStudents.find(s => 
+                        s.studentCode.endsWith(originalInput) || 
+                        originalInput.endsWith(s.studentCode.replace(/^[A-Z]+/, ''))
+                    );
+                }
+                
+                if (student) {
+                    inputToStudent.set(originalInput, student);
+                    console.log(`✅ Mapped: "${originalInput}" → Student(${student.id}, ${student.studentCode})`);
+                }
+            });
+
+            const validInputCodes = Array.from(inputToStudent.keys());
+            const invalidInputCodes = inputCodes.filter(code => !validInputCodes.includes(code));
+
+            if (invalidInputCodes.length > 0) {
+                console.error('❌ Invalid student codes:', invalidInputCodes);
+                return res.status(400).json({ 
+                    error: 'Một số mã học sinh không hợp lệ hoặc không thuộc lớp này',
+                    invalidStudentCodes: invalidInputCodes,
+                    validStudents: validStudents.map(s => ({ id: s.id, code: s.studentCode, name: s.fullName })),
+                    details: `${invalidInputCodes.length}/${inputCodes.length} học sinh không hợp lệ`
+                });
+            }
+
+            // ✅ PROCESS: Use transaction with increased timeout
+            const result = await prisma.$transaction(async (tx) => {
+                const results = [];
+                const errors = [];
+                const affectedStudents = new Set();
+
+                // Process each attendance record
+                for (const record of attendanceRecords) {
+                    try {
+                        const originalInput = record.studentId.toString();
+                        const student = inputToStudent.get(originalInput);
+                        
+                        if (!student) {
+                            throw new Error(`Student input "${originalInput}" not found`);
+                        }
+                        
+                        const attendance = await tx.attendance.upsert({
+                            where: {
+                                studentId_attendanceDate_attendanceType: {
+                                    studentId: student.id, // Use actual DB ID
+                                    attendanceDate: new Date(attendanceDate),
+                                    attendanceType
+                                }
+                            },
+                            update: {
+                                isPresent: record.isPresent,
+                                note: record.note || null,
+                                markedBy: req.user.userId,
+                                markedAt: new Date()
+                            },
+                            create: {
+                                studentId: student.id, // Use actual DB ID
+                                attendanceDate: new Date(attendanceDate),
+                                attendanceType,
+                                isPresent: record.isPresent,
+                                note: record.note || null,
+                                markedBy: req.user.userId
+                            },
+                            include: {
+                                student: {
+                                    select: { fullName: true, studentCode: true }
+                                }
+                            }
+                        });
+
+                        results.push({
+                            originalInput: originalInput, // What Flutter sent
+                            studentId: student.id,
+                            studentCode: student.studentCode, // Full code from DB
+                            studentName: student.fullName,
+                            isPresent: attendance.isPresent,
+                            status: 'success'
+                        });
+                        
+                        affectedStudents.add(student.id);
+                        
+                    } catch (error) {
+                        console.error(`❌ Error marking attendance for input ${record.studentId}:`, error);
+                        errors.push({
+                            originalInput: record.studentId,
+                            error: error.message || 'Unknown error',
+                            status: 'failed'
+                        });
+                    }
+                }
+
+                // ✅ Update attendance counts ONLY (fast operation)
+                if (affectedStudents.size > 0) {
+                    const studentIdsArray = Array.from(affectedStudents);
+                    
+                    try {
+                        // Only update attendance counts in transaction (fast)
+                        await tx.$executeRaw`
+                            UPDATE students 
+                            SET 
+                                thursday_attendance_count = (
+                                    SELECT COUNT(*) FROM attendance 
+                                    WHERE student_id = students.id 
+                                    AND attendance_type = 'thursday' 
+                                    AND is_present = true
+                                ),
+                                sunday_attendance_count = (
+                                    SELECT COUNT(*) FROM attendance 
+                                    WHERE student_id = students.id 
+                                    AND attendance_type = 'sunday' 
+                                    AND is_present = true
+                                )
+                            WHERE id = ANY(${studentIdsArray}::int[])
+                        `;
+
+                        // ✅ REMOVED: Score updates from transaction (too slow)
+                        console.log('✅ Attendance counts updated for', studentIdsArray.length, 'students');
+                        
+                    } catch (countError) {
+                        console.error('⚠️ Attendance count update error:', countError);
+                    }
+                }
+
+                return { 
+                    results, 
+                    errors, 
+                    affectedStudents: affectedStudents.size,
+                    successCount: results.length,
+                    errorCount: errors.length
+                };
+            }, {
+                maxWait: 5000,  // Reduced back to 5 seconds
+                timeout: 8000   // 8 seconds timeout  
+            });
+
+            // ✅ BACKGROUND: Update scores after transaction (non-blocking)
+            if (result.affectedStudents > 0) {
+                console.log('🔄 Starting background score updates for', result.affectedStudents, 'students');
+                
+                // Get affected student IDs and update scores in background
+                const affectedStudentIds = result.results.map(r => r.studentId).filter(Boolean);
+                
+                // Background score calculation (don't wait for completion)
+                setImmediate(() => {
+                    Promise.allSettled(
+                        affectedStudentIds.map(async (studentId) => {
+                            try {
+                                await ScoreService.updateStudentScores(studentId, {});
+                                console.log(`✅ Background score updated for student ${studentId}`);
+                            } catch (err) {
+                                console.error(`❌ Background score update failed for student ${studentId}:`, err.message);
+                            }
+                        })
+                    ).then(() => {
+                        console.log('🎯 All background score updates completed');
+                    });
+                });
+            }
+
+            // ✅ RESPONSE: Detailed success response
+            const response = {
+                message: `Điểm danh hoàn thành: ${result.successCount} thành công, ${result.errorCount} lỗi`,
+                count: result.successCount,
+                affectedStudents: result.affectedStudents,
+                summary: {
+                    total: attendanceRecords.length,
+                    success: result.successCount,
+                    failed: result.errorCount,
+                    successRate: Math.round((result.successCount / attendanceRecords.length) * 100)
+                },
+                results: result.results,
+                errors: result.errors.length > 0 ? result.errors : undefined
+            };
+
+            console.log('✅ Batch attendance completed:', response.summary);
+
+            res.json(response);
+
         } catch (error) {
-            console.error('Batch mark attendance error:', error);
-            res.status(500).json({ error: 'Lỗi server' });
+            console.error('❌ Batch mark attendance error:', error);
+            
+            // Better error responses
+            if (error.code === 'P2003') {
+                return res.status(400).json({ 
+                    error: 'Học sinh không tồn tại hoặc không thuộc lớp này',
+                    code: 'INVALID_STUDENT',
+                    details: error.message
+                });
+            }
+            
+            res.status(500).json({ 
+                error: 'Lỗi server khi điểm danh',
+                code: 'BATCH_ATTENDANCE_ERROR',
+                details: process.env.NODE_ENV === 'development' ? error.message : undefined
+            });
         }
     },
 
-    // Update attendance count by counting from database - OPTIMAL SOLUTION
+    // Update attendance count by counting from database
     async updateAttendanceCount(studentId) {
         try {
-            // Count actual attendance records from database
             const [thursdayCount, sundayCount] = await Promise.all([
                 prisma.attendance.count({
                     where: {
@@ -134,13 +334,12 @@ const attendanceController = {
                 prisma.attendance.count({
                     where: {
                         studentId: studentId,
-                        attendanceType: 'sunday', 
+                        attendanceType: 'sunday',
                         isPresent: true
                     }
                 })
             ]);
 
-            // Update student with actual counts and recalculate scores
             await ScoreService.updateStudentScores(studentId, {
                 thursdayAttendanceCount: thursdayCount,
                 sundayAttendanceCount: sundayCount
@@ -152,7 +351,7 @@ const attendanceController = {
         }
     },
 
-    // Get attendance by date and class (unchanged)
+    // Get attendance by date and class
     async getAttendanceByClass(req, res) {
         try {
             const { classId } = req.params;
@@ -190,7 +389,7 @@ const attendanceController = {
         }
     },
 
-    // Get attendance statistics (unchanged)
+    // Get attendance statistics
     async getAttendanceStats(req, res) {
         try {
             const { role, departmentId } = req.user;
@@ -241,7 +440,7 @@ const attendanceController = {
         }
     },
 
-    // Get attendance trend by date range (unchanged)
+    // Get attendance trend by date range
     async getAttendanceTrend(req, res) {
         try {
             const { role, departmentId } = req.user;
@@ -300,7 +499,272 @@ const attendanceController = {
             console.error('Get attendance trend error:', error);
             res.status(500).json({ error: 'Lỗi server' });
         }
+    },
+
+    async getStudentAttendanceHistory(req, res) {
+        try {
+            const { id } = req.params;
+            const { 
+                page = 1, 
+                limit = 50, 
+                startDate, 
+                endDate, 
+                type,
+                status,
+                month 
+            } = req.query;
+
+            // Build where clause
+            let whereClause = { 
+                studentId: parseInt(id) 
+            };
+
+            // Date filtering - priority: month > date range
+            if (month) {
+                const [year, monthNum] = month.split('-');
+                const startOfMonth = new Date(parseInt(year), parseInt(monthNum) - 1, 1);
+                const endOfMonth = new Date(parseInt(year), parseInt(monthNum), 0);
+                
+                whereClause.attendanceDate = {
+                    gte: startOfMonth,
+                    lte: endOfMonth
+                };
+            } else if (startDate && endDate) {
+                whereClause.attendanceDate = {
+                    gte: new Date(startDate),
+                    lte: new Date(endDate)
+                };
+            }
+
+            // Type filtering
+            if (type) {
+                whereClause.attendanceType = type;
+            }
+
+            // Status filtering
+            if (status !== undefined) {
+                whereClause.isPresent = status === 'present';
+            }
+
+            // Execute queries
+            const skip = (parseInt(page) - 1) * parseInt(limit);
+            
+            const [records, total, student] = await Promise.all([
+                // Get paginated records
+                prisma.attendance.findMany({
+                    where: whereClause,
+                    include: {
+                        marker: { 
+                            select: { fullName: true, saintName: true } 
+                        }
+                    },
+                    orderBy: { attendanceDate: 'desc' },
+                    skip,
+                    take: parseInt(limit)
+                }),
+                
+                // Get total count
+                prisma.attendance.count({ where: whereClause }),
+                
+                // Get student basic info
+                prisma.student.findUnique({
+                    where: { id: parseInt(id) },
+                    select: { 
+                        id: true, 
+                        fullName: true, 
+                        studentCode: true,
+                        class: {
+                            select: { name: true, department: { select: { displayName: true } } }
+                        }
+                    }
+                })
+            ]);
+
+            if (!student) {
+                return res.status(404).json({ error: 'Không tìm thấy học sinh' });
+            }
+
+            // Group by month for easier frontend processing
+            const groupedByMonth = _groupRecordsByMonth(records);
+
+            res.json({
+                student: {
+                    id: student.id,
+                    name: student.fullName,
+                    studentCode: student.studentCode,
+                    className: student.class?.name,
+                    department: student.class?.department?.displayName
+                },
+                records,
+                groupedByMonth,
+                pagination: {
+                    page: parseInt(page),
+                    limit: parseInt(limit),
+                    total,
+                    pages: Math.ceil(total / parseInt(limit)),
+                    hasNext: skip + parseInt(limit) < total,
+                    hasPrev: parseInt(page) > 1
+                },
+                filters: {
+                    startDate,
+                    endDate,
+                    type,
+                    status,
+                    month
+                }
+            });
+
+        } catch (error) {
+            console.error('Get student attendance history error:', error);
+            res.status(500).json({ error: 'Lỗi server' });
+        }
+    },
+
+    // NEW: Get student attendance statistics
+    async getStudentAttendanceStats(req, res) {
+        try {
+            const { id } = req.params;
+            const { year } = req.query;
+
+            let whereClause = { studentId: parseInt(id) };
+
+            // Year filtering
+            if (year) {
+                whereClause.attendanceDate = {
+                    gte: new Date(`${year}-01-01`),
+                    lte: new Date(`${year}-12-31`)
+                };
+            }
+
+            // Get stats
+            const [monthlyStats, typeStats, student] = await Promise.all([
+                // Monthly breakdown
+                prisma.$queryRaw`
+                    SELECT 
+                        EXTRACT(YEAR FROM attendance_date) as year,
+                        EXTRACT(MONTH FROM attendance_date) as month,
+                        attendance_type,
+                        COUNT(*) as total,
+                        SUM(CASE WHEN is_present THEN 1 ELSE 0 END) as present
+                    FROM attendance 
+                    WHERE student_id = ${parseInt(id)}
+                    ${year ? prisma.Prisma.sql`AND EXTRACT(YEAR FROM attendance_date) = ${parseInt(year)}` : prisma.Prisma.empty}
+                    GROUP BY year, month, attendance_type
+                    ORDER BY year DESC, month DESC, attendance_type
+                `,
+
+                // Overall type stats
+                prisma.attendance.groupBy({
+                    by: ['attendanceType', 'isPresent'],
+                    where: whereClause,
+                    _count: { id: true }
+                }),
+
+                // Student info
+                prisma.student.findUnique({
+                    where: { id: parseInt(id) },
+                    select: { 
+                        fullName: true, 
+                        studentCode: true,
+                        thursdayAttendanceCount: true,
+                        sundayAttendanceCount: true,
+                        attendanceAverage: true
+                    }
+                })
+            ]);
+
+            if (!student) {
+                return res.status(404).json({ error: 'Không tìm thấy học sinh' });
+            }
+
+            // Format monthly stats
+            const formattedMonthlyStats = monthlyStats.map(stat => ({
+                year: parseInt(stat.year),
+                month: parseInt(stat.month),
+                type: stat.attendance_type,
+                total: parseInt(stat.total),
+                present: parseInt(stat.present),
+                absent: parseInt(stat.total) - parseInt(stat.present),
+                percentage: Math.round((parseInt(stat.present) / parseInt(stat.total)) * 100)
+            }));
+
+            // Format type stats
+            const formattedTypeStats = {
+                thursday: {
+                    present: typeStats.find(s => s.attendanceType === 'thursday' && s.isPresent)?._count.id || 0,
+                    absent: typeStats.find(s => s.attendanceType === 'thursday' && !s.isPresent)?._count.id || 0
+                },
+                sunday: {
+                    present: typeStats.find(s => s.attendanceType === 'sunday' && s.isPresent)?._count.id || 0,
+                    absent: typeStats.find(s => s.attendanceType === 'sunday' && !s.isPresent)?._count.id || 0
+                }
+            };
+
+            res.json({
+                student: {
+                    name: student.fullName,
+                    studentCode: student.studentCode,
+                    thursdayCount: student.thursdayAttendanceCount,
+                    sundayCount: student.sundayAttendanceCount,
+                    attendanceAverage: parseFloat(student.attendanceAverage || 0)
+                },
+                monthlyStats: formattedMonthlyStats,
+                typeStats: formattedTypeStats,
+                year: year ? parseInt(year) : new Date().getFullYear()
+            });
+
+        } catch (error) {
+            console.error('Get student attendance stats error:', error);
+            res.status(500).json({ error: 'Lỗi server' });
+        }
     }
 };
+
+// Helper function to group records by month
+function _groupRecordsByMonth(records) {
+    const grouped = {};
+    
+    records.forEach(record => {
+        const date = new Date(record.attendanceDate);
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        
+        if (!grouped[monthKey]) {
+            grouped[monthKey] = {
+                year: date.getFullYear(),
+                month: date.getMonth() + 1,
+                monthName: date.toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' }),
+                records: [],
+                stats: {
+                    total: 0,
+                    present: 0,
+                    absent: 0,
+                    thursday: { total: 0, present: 0 },
+                    sunday: { total: 0, present: 0 }
+                }
+            };
+        }
+        
+        grouped[monthKey].records.push(record);
+        grouped[monthKey].stats.total++;
+        
+        if (record.isPresent) {
+            grouped[monthKey].stats.present++;
+        } else {
+            grouped[monthKey].stats.absent++;
+        }
+        
+        // Type-specific stats
+        const typeKey = record.attendanceType;
+        grouped[monthKey].stats[typeKey].total++;
+        if (record.isPresent) {
+            grouped[monthKey].stats[typeKey].present++;
+        }
+    });
+    
+    // Convert to array and sort by date descending
+    return Object.entries(grouped)
+        .map(([key, data]) => ({ monthKey: key, ...data }))
+        .sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+}
 
 module.exports = attendanceController;

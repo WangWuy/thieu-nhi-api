@@ -10,6 +10,7 @@ const dashboardController = require('../controllers/dashboardController');
 const academicYearController = require('../controllers/academicYearController');
 const ScoreService = require('../services/scoreService');
 const reportsController = require('../controllers/reportsController');
+const importUserController = require('../controllers/importUserController');
 
 const { verifyToken, requireRole, requireAdmin } = require('../middleware/auth');
 
@@ -110,6 +111,8 @@ router.get('/teachers',
     queryValidation.search,
     userController.getTeachers
 );
+
+
 
 // ==================== DEPARTMENT ROUTES ====================
 router.get('/departments',
@@ -259,6 +262,20 @@ router.get('/attendance/trend',
     attendanceController.getAttendanceTrend
 );
 
+router.get('/students/:id/attendance/history',
+    apiLimiter,
+    verifyToken,
+    attendanceValidation.getStudentHistory,
+    attendanceController.getStudentAttendanceHistory
+);
+
+router.get('/students/:id/attendance/stats',
+    apiLimiter,
+    verifyToken,
+    attendanceValidation.getStudentStats,
+    attendanceController.getStudentAttendanceStats
+);
+
 // ==================== DASHBOARD ROUTES ====================
 router.get('/dashboard/stats',
     apiLimiter,
@@ -287,8 +304,8 @@ router.post('/import/users',
     apiLimiter,
     verifyToken,
     requireRole(['ban_dieu_hanh']),
-    importController.uploadExcel,
-    // importController.batchImportUsers
+    importUserController.uploadExcel,
+    importUserController.importUsers
 );
 
 router.post('/import/validate',

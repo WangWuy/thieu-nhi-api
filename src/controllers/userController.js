@@ -7,7 +7,7 @@ const userController = {
     async getUsers(req, res) {
         try {
             const { role, departmentId } = req.user;
-            const { page = 1, limit = 20, search, roleFilter } = req.query;
+            const { page = 1, limit = 20, search, roleFilter, departmentFilter, classFilter } = req.query;
 
             let whereClause = { isActive: true };
 
@@ -17,6 +17,19 @@ const userController = {
                     { departmentId: departmentId },
                     { role: 'giao_ly_vien', classTeachers: { some: { class: { departmentId } } } }
                 ];
+            }
+
+            // Thêm department filter
+            if (departmentFilter) {
+                whereClause.OR = [
+                    { departmentId: parseInt(departmentFilter) },
+                    { classTeachers: { some: { class: { departmentId: parseInt(departmentFilter) } } } }
+                ];
+            }
+
+            // Thêm class filter
+            if (classFilter) {
+                whereClause.classTeachers = { some: { classId: parseInt(classFilter) } };
             }
 
             // Search filter

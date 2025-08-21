@@ -105,6 +105,13 @@ router.put('/users/:id/deactivate',
     userController.deactivateUser
 );
 
+router.put('/students/:id/restore',
+    apiLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
+    studentController.restoreStudent
+);
+
 router.get('/teachers',
     apiLimiter,
     verifyToken,

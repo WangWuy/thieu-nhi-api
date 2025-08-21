@@ -76,13 +76,14 @@ async function main() {
 
     const classData = {
         CHIEN: [
+            'Ấu 1A', 'Ấu 1B', 'Ấu 1C', 'Ấu 1D',
             'Khai Tâm A',
             'Khai Tâm B', 
             'Khai Tâm C',
             'Khai Tâm D'
         ],
         AU: [
-            'Ấu 1A', 'Ấu 1B', 'Ấu 1C', 'Ấu 1D', 'Ấu 1E',
+            'Ấu 1E',
             'Ấu 2A', 'Ấu 2B', 'Ấu 2C', 'Ấu 2D', 'Ấu 2E',
             'Ấu 3A', 'Ấu 3B', 'Ấu 3C', 'Ấu 3D', 'Ấu 3E'
         ],
@@ -92,9 +93,9 @@ async function main() {
             'Thiếu 3A', 'Thiếu 3B', 'Thiếu 3C', 'Thiếu 3D', 'Thiếu 3E'
         ],
         NGHIA: [
-            'Nghĩa 1A', 'Nghĩa 1B', 'Nghĩa 1C', 'Nghĩa 1D',
-            'Nghĩa 2A', 'Nghĩa 2B', 'Nghĩa 2C', 'Nghĩa 2D',
-            'Nghĩa 3A', 'Nghĩa 3B', 'Nghĩa 3C', 'Nghĩa 3D',
+            'Nghĩa 1A', 'Nghĩa 1B', 'Nghĩa 1C', 'Nghĩa 1D', 'Nghĩa 1E',
+            'Nghĩa 2A', 'Nghĩa 2B', 'Nghĩa 2C', 'Nghĩa 2D', 'Nghĩa 2E',
+            'Nghĩa 3A', 'Nghĩa 3B', 'Nghĩa 3C', 'Nghĩa 3D', 'Nghĩa 3E',
             'Hiệp sĩ 1',
             'Hiệp sĩ 2'
         ]

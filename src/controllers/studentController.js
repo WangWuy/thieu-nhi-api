@@ -3,13 +3,29 @@ const ScoreService = require('../services/scoreService');
 const prisma = new PrismaClient();
 
 const studentController = {
-    // Get all students (with filters by role) - Updated to include score fields
+    // Get all students (with filters by role) - Updated to include isActive filter
     async getStudents(req, res) {
         try {
             const { role, departmentId, classId } = req.user;
-            const { page = 1, limit = 20, search, classFilter, academicYearId } = req.query;
+            const { 
+                page = 1, 
+                limit = 20, 
+                search, 
+                classFilter, 
+                academicYearId,
+                isActive // ✅ THÊM FILTER IS_ACTIVE
+            } = req.query;
 
-            let whereClause = { isActive: true };
+            let whereClause = {};
+
+            // ✅ Apply isActive filter (dynamic)
+            if (isActive !== undefined) {
+                // Nếu có param isActive thì dùng theo param
+                whereClause.isActive = isActive === 'true' || isActive === true;
+            } else {
+                // Mặc định chỉ lấy active students
+                whereClause.isActive = true;
+            }
 
             // Apply role-based filters
             if (role === 'phan_doan_truong') {
@@ -327,11 +343,29 @@ const studentController = {
         }
     },
 
-    // Get students by class - Updated to include scores
+    // ✅ THÊM ENDPOINT ĐỂ KHÔI PHỤC STUDENT
+    async restoreStudent(req, res) {
+        try {
+            const { id } = req.params;
+
+            await prisma.student.update({
+                where: { id: parseInt(id) },
+                data: { isActive: true }
+            });
+
+            res.json({ message: 'Khôi phục học sinh thành công' });
+
+        } catch (error) {
+            console.error('Restore student error:', error);
+            res.status(500).json({ error: 'Lỗi server' });
+        }
+    },
+
+    // Get students by class - Updated to include scores and isActive filter
     async getStudentsByClass(req, res) {
         try {
             const { classId } = req.params;
-            const { includeScores = false } = req.query;
+            const { includeScores = false, isActive } = req.query;
 
             const includeOptions = {
                 class: {
@@ -347,11 +381,16 @@ const studentController = {
                 };
             }
 
+            // ✅ Apply isActive filter
+            let whereClause = { classId: parseInt(classId) };
+            if (isActive !== undefined) {
+                whereClause.isActive = isActive === 'true' || isActive === true;
+            } else {
+                whereClause.isActive = true; // Default
+            }
+
             const students = await prisma.student.findMany({
-                where: {
-                    classId: parseInt(classId),
-                    isActive: true
-                },
+                where: whereClause,
                 include: includeOptions,
                 orderBy: { fullName: 'asc' }
             });

@@ -232,13 +232,14 @@ router.get('/classes/:classId/students',
 
 
 // ==================== ATTENDANCE ROUTES ====================
-router.post('/attendance',
-    attendanceLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-    attendanceValidation.mark,
-    attendanceController.markAttendance
-);
+// // LEGACY: Single attendance (not used)
+// router.post('/attendance',
+//     attendanceLimiter,
+//     verifyToken,
+//     requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
+//     attendanceValidation.mark,
+//     attendanceController.markAttendance
+// );
 
 router.get('/classes/:classId/attendance',
     apiLimiter,
@@ -254,19 +255,28 @@ router.get('/attendance/stats',
     attendanceController.getAttendanceStats
 );
 
-router.post('/classes/:classId/attendance/batch',
-    attendanceLimiter, // Batch operations cần limit chặt
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-    attendanceValidation.batchMark,
-    attendanceController.batchMarkAttendance
-);
+// // LEGACY: Batch attendance (not used)  
+// router.post('/classes/:classId/attendance/batch',
+//     attendanceLimiter, // Batch operations cần limit chặt
+//     verifyToken,
+//     requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
+//     attendanceValidation.batchMark,
+//     attendanceController.batchMarkAttendance
+// );
 
 router.get('/attendance/trend',
     apiLimiter,
     verifyToken,
     queryValidation.dateRange,
     attendanceController.getAttendanceTrend
+);
+
+router.post('/attendance/universal',
+    attendanceLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
+    attendanceValidation.universal,
+    attendanceController.universalAttendance
 );
 
 router.get('/students/:id/attendance/history',

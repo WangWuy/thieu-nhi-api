@@ -511,6 +511,42 @@ const attendanceValidation = {
             .withMessage('Year phải từ 2020-2030'),
         
         handleValidationErrors
+    ],
+
+    universal: [
+        body('studentCodes')
+            .isArray()
+            .withMessage('Student codes must be an array')
+            .notEmpty()
+            .withMessage('Student codes cannot be empty'),
+        body('studentCodes.*')
+            .isString()
+            .withMessage('Each student code must be a string')
+            .trim()
+            .isLength({ min: 1, max: 20 })
+            .withMessage('Student code must be 1-20 characters'),
+        body('attendanceDate')
+            .isISO8601()
+            .withMessage('Invalid attendance date format'),
+        body('attendanceType')
+            .isIn(['thursday', 'sunday'])
+            .withMessage('Attendance type must be thursday or sunday'),
+        body('note')
+            .optional()
+            .isString()
+            .trim()
+            .isLength({ max: 500 })
+            .withMessage('Note must be less than 500 characters'),
+        (req, res, next) => {
+            const errors = validationResult(req);
+            if (!errors.isEmpty()) {
+                return res.status(400).json({
+                    error: 'Dữ liệu không hợp lệ',
+                    details: errors.array()
+                });
+            }
+            next();
+        }
     ]
 };
 

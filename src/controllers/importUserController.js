@@ -117,21 +117,8 @@ const importUserController = {
                         throw new Error('Số điện thoại đã được sử dụng');
                     }
 
-                    // Determine role from notes
-                    let role = 'giao_ly_vien'; // Default
-                    if (notes) {
-                        const notesLower = notes.toLowerCase();
-                        if (notesLower.includes('ban điều hành') || 
-                            notesLower.includes('bđh') ||
-                            notesLower.includes('điều hành')) {
-                            role = 'ban_dieu_hanh';
-                        } else if (notesLower.includes('phân đoàn trưởng') || 
-                                   notesLower.includes('pđt') ||
-                                   notesLower.includes('huynh trưởng') ||
-                                   notesLower.includes('trưởng')) {
-                            role = 'phan_doan_truong';
-                        }
-                    }
+                    // Mặc định tất cả user import đều là giao_ly_vien
+                    const role = 'giao_ly_vien';
 
                     // Tìm lớp theo tên
                     let assignedClass = null;

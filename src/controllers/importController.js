@@ -51,7 +51,7 @@ const importController = {
                     // Extract data từ Excel format mới - Image 2
                     const studentCode = row['MÃ TN'] || row['Mã TN'];
                     const saintName = row['TÊN THÁNH'] || row['Tên thánh'];
-                    const lastName = row['HỌ'] || row['Họ'] || '';
+                    const lastName = row['HỌ'] || row['HỌ '] || row['Họ'] || row['Họ '] || '';
                     const firstName = row['TÊN'] || row['Tên'] || '';
                     const fullName = `${lastName} ${firstName}`.trim();
                     

@@ -73,8 +73,8 @@ const importController = {
                     const address = row['ĐỊA CHỈ'] || row['Địa chỉ'];
                     
                     // Phone numbers
-                    let parentPhone1 = row['SDT 1'] ? String(row['SDT 1']) : null;
-                    let parentPhone2 = row['SDT 2'] ? String(row['SDT 2']) : null;
+                    let parentPhone1 = row['SĐT 1'] ? String(row['SĐT 1']) : null;
+                    let parentPhone2 = row['SĐT 2'] ? String(row['SĐT 2']) : null;
                     
                     const className = row['LỚP'] || row['Lớp'];
 

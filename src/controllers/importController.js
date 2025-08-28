@@ -23,7 +23,7 @@ const importController = {
                 return res.status(400).json({ error: 'Vui lòng chọn file Excel' });
             }
 
-            // Get current academic year TRƯỚC KHI parse Excel
+            // Get current academic year
             const currentAcademicYear = await prisma.academicYear.findFirst({
                 where: { isCurrent: true }
             });
@@ -48,16 +48,14 @@ const importController = {
             for (let i = 0; i < data.length; i++) {
                 const row = data[i];
                 try {
-                    // Extract data từ Excel format của bạn - 2 cột riêng biệt
+                    // Extract data từ Excel format mới - Image 2
                     const studentCode = row['MÃ TN'] || row['Mã TN'];
                     const saintName = row['TÊN THÁNH'] || row['Tên thánh'];
-
-                    // 2 cột riêng biệt
                     const lastName = row['HỌ'] || row['Họ'] || '';
                     const firstName = row['TÊN'] || row['Tên'] || '';
                     const fullName = `${lastName} ${firstName}`.trim();
-
-                    // Xử lý ngày sinh đơn giản
+                    
+                    // Parse birth date
                     let birthDate = row['NGÀY SINH'] || row['Ngày sinh'];
                     if (birthDate) {
                         if (typeof birthDate === 'number') {
@@ -73,13 +71,12 @@ const importController = {
                     }
 
                     const address = row['ĐỊA CHỈ'] || row['Địa chỉ'];
-
-                    // Convert phone numbers to string
-                    let parentPhone1 = row['SĐT 1'] || row['SDT 1'] ? String(row['SĐT 1'] || row['SDT 1']) : null;
-                    let parentPhone2 = row['SĐT 2'] || row['SDT 2'] ? String(row['SĐT 2'] || row['SDT 2']) : null;
-
-
-                    const className = row['LỚP MỚI'] || row['Lớp mới'] || row['LỚP CŨ'] || row['Lớp cũ'];
+                    
+                    // Phone numbers
+                    let parentPhone1 = row['SDT 1'] ? String(row['SDT 1']) : null;
+                    let parentPhone2 = row['SDT 2'] ? String(row['SDT 2']) : null;
+                    
+                    const className = row['LỚP'] || row['Lớp'];
 
                     // Validate required fields
                     if (!studentCode || !fullName || !className) {
@@ -107,28 +104,18 @@ const importController = {
                         throw new Error('Mã TN đã tồn tại');
                     }
 
-                    // Fix missing leading zero cho phone 1
+                    // Fix phone numbers
                     if (parentPhone1) {
-                        parentPhone1 = parentPhone1.replace(/\D/g, ''); // Remove non-digits
+                        parentPhone1 = parentPhone1.replace(/\D/g, '');
                         if (parentPhone1.length === 9 && !parentPhone1.startsWith('0')) {
-                            parentPhone1 = '0' + parentPhone1; // Add leading zero
+                            parentPhone1 = '0' + parentPhone1;
                         }
                     }
 
-                    // Fix missing leading zero cho phone 2  
                     if (parentPhone2) {
-                        parentPhone2 = parentPhone2.replace(/\D/g, ''); // Remove non-digits
+                        parentPhone2 = parentPhone2.replace(/\D/g, '');
                         if (parentPhone2.length === 9 && !parentPhone2.startsWith('0')) {
-                            parentPhone2 = '0' + parentPhone2; // Add leading zero
-                        }
-                    }
-
-                    // Cũng fix cho phoneNumber field nếu có:
-                    let phoneNumber = row['Số điện thoại'] ? String(row['Số điện thoại']) : null;
-                    if (phoneNumber) {
-                        phoneNumber = phoneNumber.replace(/\D/g, '');
-                        if (phoneNumber.length === 9 && !phoneNumber.startsWith('0')) {
-                            phoneNumber = '0' + phoneNumber;
+                            parentPhone2 = '0' + parentPhone2;
                         }
                     }
 
@@ -144,7 +131,6 @@ const importController = {
                             parentPhone2,
                             classId: classObj.id,
                             academicYearId: currentAcademicYear.id,
-                            // ✅ Dùng fields mới
                             thursdayAttendanceCount: 0,
                             sundayAttendanceCount: 0,
                             attendanceAverage: 0,

@@ -423,27 +423,18 @@ const reportsController = {
     // Export report data
     async exportReport(req, res) {
         try {
-            const { type, format = 'csv', ...filters } = req.query;
+            const { type, format = 'xlsx', ...filters } = req.query;
+
+            // Nếu là attendance report, dùng simplified version
+            if (type === 'attendance') {
+                req.query = { ...filters, format };
+                return this.exportSimpleAttendanceReport(req, res);
+            }
 
             let data = [];
             let filename = `report_${type}_${new Date().toISOString().split('T')[0]}`;
 
             switch (type) {
-                case 'attendance':
-                    // Reuse attendance report logic
-                    req.query = filters;
-                    const attendanceResult = await this.getAttendanceReportData(req);
-                    data = attendanceResult.attendanceData.map(record => ({
-                        'Ngày': new Date(record.attendanceDate).toLocaleDateString('vi-VN'),
-                        'Loại': record.attendanceType === 'thursday' ? 'Thứ 5' : 'Chủ nhật',
-                        'Học sinh': record.student.fullName,
-                        'Lớp': record.student.class.name,
-                        'Ngành': record.student.class.department.displayName,
-                        'Trạng thái': record.isPresent ? 'Có mặt' : 'Vắng mặt',
-                        'Ghi chú': record.note || ''
-                    }));
-                    break;
-
                 case 'ranking':
                     req.query = { ...filters, limit: 1000 };
                     const rankingResult = await this.getStudentRankingData(req);
@@ -463,23 +454,28 @@ const reportsController = {
                     return res.status(400).json({ error: 'Loại báo cáo không hợp lệ' });
             }
 
-            if (format === 'csv') {
-                // Generate CSV
-                const headers = Object.keys(data[0] || {});
-                const csvContent = [
-                    headers.join(','),
-                    ...data.map(row =>
-                        headers.map(header =>
-                            `"${(row[header] || '').toString().replace(/"/g, '""')}"`
-                        ).join(',')
-                    )
-                ].join('\n');
+            if (format === 'xlsx') {
+                const XLSX = require('xlsx');
 
-                res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-                res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv"`);
-                res.send('\uFEFF' + csvContent); // Add BOM for UTF-8
+                // Tạo workbook và worksheet
+                const workbook = XLSX.utils.book_new();
+                const worksheet = XLSX.utils.json_to_sheet(data);
+
+                // Set column widths based on content
+                const colWidths = Object.keys(data[0] || {}).map(key => ({ wch: 15 }));
+                worksheet['!cols'] = colWidths;
+
+                // Add worksheet to workbook
+                XLSX.utils.book_append_sheet(workbook, worksheet, 'Báo cáo');
+
+                // Generate buffer
+                const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+                // Set headers and send file
+                res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+                res.setHeader('Content-Disposition', `attachment; filename="${filename}.xlsx"`);
+                res.send(buffer);
             } else {
-                // Return JSON for other formats
                 res.json({
                     data,
                     metadata: {
@@ -580,7 +576,135 @@ const reportsController = {
         }));
 
         return { ranking };
-    }
+    },
+
+    // Export simplified attendance report (chỉ mã thiếu nhi)
+    async exportSimpleAttendanceReport(req, res) {
+        try {
+            const { startDate, endDate, classId, departmentId, format = 'xlsx' } = req.query;
+            const { role, departmentId: userDepartmentId } = req.user;
+
+            let whereClause = {
+                isPresent: true // Chỉ lấy những người có mặt
+            };
+
+            // Role-based filtering  
+            if (role === 'phan_doan_truong') {
+                whereClause.student = {
+                    class: { departmentId: userDepartmentId }
+                };
+            } else if (classId) {
+                whereClause.student = { classId: parseInt(classId) };
+            } else if (departmentId) {
+                whereClause.student = {
+                    class: { departmentId: parseInt(departmentId) }
+                };
+            }
+
+            // Date filtering
+            if (startDate && endDate) {
+                whereClause.attendanceDate = {
+                    gte: new Date(startDate),
+                    lte: new Date(endDate)
+                };
+            }
+
+            // Get attendance data - chỉ lấy mã thiếu nhi và ngày
+            const attendanceData = await prisma.attendance.findMany({
+                where: whereClause,
+                select: {
+                    attendanceDate: true,
+                    attendanceType: true,
+                    student: {
+                        select: {
+                            studentCode: true,
+                            fullName: true // Để hiển thị trong UI, không export
+                        }
+                    }
+                },
+                orderBy: [
+                    { attendanceDate: 'desc' },
+                    { student: { studentCode: 'asc' } }
+                ]
+            });
+
+            // Group by date for easier export
+            const groupedByDate = {};
+            attendanceData.forEach(record => {
+                const dateKey = new Date(record.attendanceDate).toISOString().split('T')[0];
+                const typeKey = record.attendanceType;
+                const key = `${dateKey}_${typeKey}`;
+
+                if (!groupedByDate[key]) {
+                    groupedByDate[key] = {
+                        date: dateKey,
+                        type: typeKey,
+                        studentCodes: []
+                    };
+                }
+
+                groupedByDate[key].studentCodes.push(record.student.studentCode);
+            });
+
+            if (format === 'xlsx') {
+                const XLSX = require('xlsx');
+
+                // Tạo dữ liệu cho Excel
+                const excelData = Object.values(groupedByDate)
+                    .sort((a, b) => new Date(b.date) - new Date(a.date))
+                    .map(group => ({
+                        'Ngày': new Date(group.date).toLocaleDateString('vi-VN'),
+                        'Loại điểm danh': group.type === 'thursday' ? 'Thứ 5' : 'Chủ nhật',
+                        'Số lượng': group.studentCodes.length,
+                        'Mã thiếu nhi có mặt': group.studentCodes.join('; ')
+                    }));
+
+                // Tạo workbook và worksheet
+                const workbook = XLSX.utils.book_new();
+                const worksheet = XLSX.utils.json_to_sheet(excelData);
+
+                // Set column widths
+                worksheet['!cols'] = [
+                    { wch: 12 }, // Ngày
+                    { wch: 15 }, // Loại điểm danh  
+                    { wch: 10 }, // Số lượng
+                    { wch: 60 }  // Mã thiếu nhi
+                ];
+
+                // Add worksheet to workbook
+                XLSX.utils.book_append_sheet(workbook, worksheet, 'Điểm danh');
+
+                // Generate filename
+                const filename = `diem_danh_${startDate || 'all'}_${endDate || 'all'}.xlsx`;
+
+                // Generate buffer
+                const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+                // Set headers and send file
+                res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+                res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+                res.send(buffer);
+            } else {
+                // Return JSON
+                res.json({
+                    attendanceByDate: groupedByDate,
+                    summary: {
+                        totalDays: Object.keys(groupedByDate).length,
+                        totalAttendances: attendanceData.length,
+                        dateRange: { startDate, endDate }
+                    },
+                    metadata: {
+                        generatedAt: new Date().toISOString(),
+                        filters: { startDate, endDate, classId, departmentId }
+                    }
+                });
+            }
+
+        } catch (error) {
+            console.error('Export simple attendance report error:', error);
+            res.status(500).json({ error: 'Lỗi server' });
+        }
+    },
 };
 
 module.exports = reportsController;

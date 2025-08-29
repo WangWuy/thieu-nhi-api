@@ -7,23 +7,22 @@ const studentController = {
     async getStudents(req, res) {
         try {
             const { role, departmentId, classId } = req.user;
-            const { 
-                page = 1, 
-                limit = 20, 
-                search, 
-                classFilter, 
+            const {
+                page = 1,
+                limit = 20,
+                search,
+                classFilter,
                 academicYearId,
-                isActive // ✅ THÊM FILTER IS_ACTIVE
+                isActive,
+                sortBy = 'firstName' // Thêm sortBy parameter
             } = req.query;
 
             let whereClause = {};
 
-            // ✅ Apply isActive filter (dynamic)
+            // Apply isActive filter (dynamic)
             if (isActive !== undefined) {
-                // Nếu có param isActive thì dùng theo param
                 whereClause.isActive = isActive === 'true' || isActive === true;
             } else {
-                // Mặc định chỉ lấy active students
                 whereClause.isActive = true;
             }
 
@@ -32,7 +31,6 @@ const studentController = {
                 whereClause.class = { departmentId: departmentId };
             } else if (role === 'giao_ly_vien') {
                 // Giáo viên có thể xem tất cả (theo yêu cầu)
-                // Không filter gì thêm
             }
 
             // Apply search filter
@@ -56,40 +54,142 @@ const studentController = {
 
             const skip = (page - 1) * limit;
 
-            const [students, total] = await Promise.all([
-                prisma.student.findMany({
-                    where: whereClause,
-                    include: {
-                        class: {
-                            include: {
-                                department: true
-                            }
-                        },
-                        academicYear: {
-                            select: {
-                                id: true,
-                                name: true,
-                                totalWeeks: true,
-                                isCurrent: true
-                            }
+            // Xây dựng orderBy dựa vào sortBy parameter
+            let orderByClause;
+
+            if (sortBy === 'firstName') {
+                // Sort by firstName (tên) - cần dùng raw SQL hoặc computed field
+                // Vì Prisma không support substring trong orderBy, ta sẽ fetch tất cả rồi sort trong memory
+                // Hoặc dùng raw query
+
+                // Cách 1: Dùng Prisma raw query
+                const studentsRaw = await prisma.$queryRaw`
+                    SELECT s.*, 
+                           c.name as class_name,
+                           d.display_name as department_display_name,
+                           ay.name as academic_year_name,
+                           ay.total_weeks as academic_year_total_weeks,
+                           ay.is_current as academic_year_is_current,
+                           TRIM(SUBSTRING(s.full_name FROM '[^ ]+$')) as first_name
+                    FROM students s
+                    LEFT JOIN classes c ON s.class_id = c.id
+                    LEFT JOIN departments d ON c.department_id = d.id
+                    LEFT JOIN academic_years ay ON s.academic_year_id = ay.id
+                    WHERE s.is_active = ${whereClause.isActive}
+                    ${classFilter ? `AND s.class_id = ${parseInt(classFilter)}` : ''}
+                    ${search ? `AND (
+                        s.full_name ILIKE '%${search}%' OR 
+                        s.student_code ILIKE '%${search}%' OR 
+                        s.saint_name ILIKE '%${search}%'
+                    )` : ''}
+                    ORDER BY TRIM(SUBSTRING(s.full_name FROM '[^ ]+$')) ASC
+                    LIMIT ${parseInt(limit)} OFFSET ${skip}
+                `;
+
+                const totalRaw = await prisma.$queryRaw`
+                    SELECT COUNT(*) as count
+                    FROM students s
+                    LEFT JOIN classes c ON s.class_id = c.id
+                    WHERE s.is_active = ${whereClause.isActive}
+                    ${classFilter ? `AND s.class_id = ${parseInt(classFilter)}` : ''}
+                    ${search ? `AND (
+                        s.full_name ILIKE '%${search}%' OR 
+                        s.student_code ILIKE '%${search}%' OR 
+                        s.saint_name ILIKE '%${search}%'
+                    )` : ''}
+                `;
+
+                // Transform raw results to match expected format
+                const students = studentsRaw.map(student => ({
+                    id: student.id,
+                    studentCode: student.student_code,
+                    qrCode: student.qr_code,
+                    saintName: student.saint_name,
+                    fullName: student.full_name,
+                    birthDate: student.birth_date,
+                    phoneNumber: student.phone_number,
+                    parentPhone1: student.parent_phone_1,
+                    parentPhone2: student.parent_phone_2,
+                    address: student.address,
+                    classId: student.class_id,
+                    academicYearId: student.academic_year_id,
+                    thursdayAttendanceCount: student.thursday_attendance_count,
+                    sundayAttendanceCount: student.sunday_attendance_count,
+                    attendanceAverage: student.attendance_average,
+                    study45Hk1: student.study_45_hk1,
+                    examHk1: student.exam_hk1,
+                    study45Hk2: student.study_45_hk2,
+                    examHk2: student.exam_hk2,
+                    studyAverage: student.study_average,
+                    finalAverage: student.final_average,
+                    isActive: student.is_active,
+                    createdAt: student.created_at,
+                    updatedAt: student.updated_at,
+                    class: {
+                        id: student.class_id,
+                        name: student.class_name,
+                        department: {
+                            displayName: student.department_display_name
                         }
                     },
-                    skip,
-                    take: parseInt(limit),
-                    orderBy: { fullName: 'asc' }
-                }),
-                prisma.student.count({ where: whereClause })
-            ]);
+                    academicYear: student.academic_year_id ? {
+                        id: student.academic_year_id,
+                        name: student.academic_year_name,
+                        totalWeeks: student.academic_year_total_weeks,
+                        isCurrent: student.academic_year_is_current
+                    } : null
+                }));
 
-            res.json({
-                students,
-                pagination: {
-                    page: parseInt(page),
-                    limit: parseInt(limit),
-                    total,
-                    pages: Math.ceil(total / limit)
-                }
-            });
+                const total = parseInt(totalRaw[0].count);
+
+                res.json({
+                    students,
+                    pagination: {
+                        page: parseInt(page),
+                        limit: parseInt(limit),
+                        total,
+                        pages: Math.ceil(total / limit)
+                    }
+                });
+            } else {
+                // Default sort (fullName)
+                orderByClause = { fullName: 'asc' };
+
+                const [students, total] = await Promise.all([
+                    prisma.student.findMany({
+                        where: whereClause,
+                        include: {
+                            class: {
+                                include: {
+                                    department: true
+                                }
+                            },
+                            academicYear: {
+                                select: {
+                                    id: true,
+                                    name: true,
+                                    totalWeeks: true,
+                                    isCurrent: true
+                                }
+                            }
+                        },
+                        skip,
+                        take: parseInt(limit),
+                        orderBy: orderByClause
+                    }),
+                    prisma.student.count({ where: whereClause })
+                ]);
+
+                res.json({
+                    students,
+                    pagination: {
+                        page: parseInt(page),
+                        limit: parseInt(limit),
+                        total,
+                        pages: Math.ceil(total / limit)
+                    }
+                });
+            }
 
         } catch (error) {
             console.error('Get students error:', error);
@@ -133,21 +233,21 @@ const studentController = {
                     thursday: {
                         attended: student.thursdayAttendanceCount,
                         total: student.academicYear?.totalWeeks || 0,
-                        percentage: student.academicYear?.totalWeeks ? 
+                        percentage: student.academicYear?.totalWeeks ?
                             Math.round((student.thursdayAttendanceCount / student.academicYear.totalWeeks) * 100) : 0
                     },
                     sunday: {
                         attended: student.sundayAttendanceCount,
                         total: student.academicYear?.totalWeeks || 0,
-                        percentage: student.academicYear?.totalWeeks ? 
+                        percentage: student.academicYear?.totalWeeks ?
                             Math.round((student.sundayAttendanceCount / student.academicYear.totalWeeks) * 100) : 0
                     }
                 },
                 scoreBreakdown: {
                     attendance: {
-                        thursday: student.academicYear?.totalWeeks ? 
+                        thursday: student.academicYear?.totalWeeks ?
                             (student.thursdayAttendanceCount * (10 / student.academicYear.totalWeeks)) : 0,
-                        sunday: student.academicYear?.totalWeeks ? 
+                        sunday: student.academicYear?.totalWeeks ?
                             (student.sundayAttendanceCount * (10 / student.academicYear.totalWeeks)) : 0,
                         average: parseFloat(student.attendanceAverage)
                     },
@@ -280,13 +380,13 @@ const studentController = {
                 'thursdayAttendanceCount', 'sundayAttendanceCount',
                 'study45Hk1', 'examHk1', 'study45Hk2', 'examHk2'
             ];
-            
+
             const scoreUpdates = {};
             let hasScoreUpdates = false;
 
             scoreFields.forEach(field => {
                 if (updateData[field] !== undefined) {
-                    scoreUpdates[field] = field.includes('Count') ? 
+                    scoreUpdates[field] = field.includes('Count') ?
                         parseInt(updateData[field]) : parseFloat(updateData[field]);
                     delete updateData[field]; // Remove from regular update
                     hasScoreUpdates = true;
@@ -484,8 +584,8 @@ const studentController = {
                             study45Hk2: parseFloat(student.study45Hk2),
                             examHk1Weighted: parseFloat(student.examHk1) * 2,
                             examHk2Weighted: parseFloat(student.examHk2) * 2,
-                            total: parseFloat(student.study45Hk1) + parseFloat(student.study45Hk2) + 
-                                  (parseFloat(student.examHk1) * 2) + (parseFloat(student.examHk2) * 2)
+                            total: parseFloat(student.study45Hk1) + parseFloat(student.study45Hk2) +
+                                (parseFloat(student.examHk1) * 2) + (parseFloat(student.examHk2) * 2)
                         }
                     }
                 },

@@ -722,12 +722,13 @@ const attendanceController = {
     // ✅ NEW: Universal attendance - cross-class attendance marking
     async universalAttendance(req, res) {
         try {
-            const { studentCodes, attendanceDate, attendanceType, note } = req.body;
+            const { studentCodes, attendanceDate, attendanceType, note, isPresent } = req.body;
 
             console.log('🌍 Universal attendance request:', {
                 studentCodes,
                 attendanceDate,
                 attendanceType,
+                isPresent,
                 codeCount: studentCodes.length,
                 user: req.user.userId
             });
@@ -816,8 +817,8 @@ const attendanceController = {
                                 }
                             },
                             update: {
-                                isPresent: true, // Universal attendance always marks present
-                                note: note || 'Universal QR Scan',
+                                isPresent: isPresent, // Universal attendance always marks present
+                                note: note || (isPresent ? 'Universal QR Scan' : 'Manual Absent Mark'),
                                 markedBy: req.user.userId,
                                 markedAt: new Date()
                             },
@@ -825,8 +826,8 @@ const attendanceController = {
                                 studentId: student.id,
                                 attendanceDate: new Date(attendanceDate),
                                 attendanceType,
-                                isPresent: true,
-                                note: note || 'Universal QR Scan',
+                                isPresent: isPresent,
+                                note: note || (isPresent ? 'Universal QR Scan' : 'Manual Absent Mark'),
                                 markedBy: req.user.userId
                             }
                         });
@@ -836,7 +837,7 @@ const attendanceController = {
                             studentName: student.fullName,
                             className: student.class?.name,
                             department: student.class?.department?.displayName,
-                            isPresent: true,
+                            isPresent: isPresent,
                             status: 'success'
                         });
 
@@ -912,6 +913,7 @@ const attendanceController = {
                 success: true,
                 message: `Điểm danh thành công ${result.successCount}/${studentCodes.length} thiếu nhi`,
                 count: result.successCount,
+                isPresent: isPresent,
                 details: {
                     total: studentCodes.length,
                     found: students.length,
@@ -945,6 +947,87 @@ const attendanceController = {
                 code: 'UNIVERSAL_ATTENDANCE_ERROR',
                 details: process.env.NODE_ENV === 'development' ? error.message : undefined
             });
+        }
+    },
+
+    // ✅ Get today's attendance status for students
+    async getTodayAttendanceStatus(req, res) {
+        try {
+            const { date, type } = req.query; // date format: YYYY-MM-DD, type: thursday/sunday
+            const { studentCodes } = req.body; // Array of student codes to check
+
+            if (!date || !type) {
+                return res.status(400).json({
+                    error: 'Date and type are required',
+                    example: { date: '2024-03-15', type: 'thursday' }
+                });
+            }
+
+            if (!studentCodes || !Array.isArray(studentCodes)) {
+                return res.status(400).json({
+                    error: 'Student codes array is required'
+                });
+            }
+
+            const attendanceRecords = await prisma.attendance.findMany({
+                where: {
+                    attendanceDate: new Date(date),
+                    attendanceType: type,
+                    student: {
+                        studentCode: { in: studentCodes },
+                        isActive: true
+                    }
+                },
+                include: {
+                    student: {
+                        select: {
+                            studentCode: true,
+                            fullName: true,
+                            class: {
+                                select: {
+                                    name: true,
+                                    department: { select: { displayName: true } }
+                                }
+                            }
+                        }
+                    },
+                    marker: {
+                        select: { fullName: true, saintName: true }
+                    }
+                }
+            });
+
+            // Create status map
+            const statusMap = {};
+            attendanceRecords.forEach(record => {
+                statusMap[record.student.studentCode] = {
+                    studentCode: record.student.studentCode,
+                    studentName: record.student.fullName,
+                    className: record.student.class?.name,
+                    department: record.student.class?.department?.displayName,
+                    isPresent: record.isPresent,
+                    markedAt: record.markedAt,
+                    markedBy: record.marker?.fullName || record.marker?.saintName,
+                    note: record.note,
+                    canToggle: true // Always allow toggle
+                };
+            });
+
+            res.json({
+                date,
+                type,
+                attendanceStatus: statusMap,
+                summary: {
+                    total: studentCodes.length,
+                    attended: Object.values(statusMap).filter(s => s.isPresent).length,
+                    absent: Object.values(statusMap).filter(s => !s.isPresent).length,
+                    notMarked: studentCodes.length - Object.keys(statusMap).length
+                }
+            });
+
+        } catch (error) {
+            console.error('Get today attendance status error:', error);
+            res.status(500).json({ error: 'Server error' });
         }
     },
 };
@@ -1027,35 +1110,6 @@ function _generateDepartmentSummary(results) {
     });
 
     return departmentSummary;
-}
-
-// Legacy function - keep for backward compatibility
-function _generateClassSummary(results) {
-    const classSummary = {};
-
-    results.forEach(result => {
-        const className = result.className || 'Unknown';
-        const department = result.department || 'Unknown';
-
-        if (!classSummary[department]) {
-            classSummary[department] = {};
-        }
-
-        if (!classSummary[department][className]) {
-            classSummary[department][className] = {
-                count: 0,
-                students: []
-            };
-        }
-
-        classSummary[department][className].count++;
-        classSummary[department][className].students.push({
-            code: result.studentCode,
-            name: result.studentName
-        });
-    });
-
-    return classSummary;
 }
 
 module.exports = attendanceController;

@@ -293,6 +293,15 @@ router.get('/students/:id/attendance/stats',
     attendanceController.getStudentAttendanceStats
 );
 
+// ✅ Get today's attendance status for multiple students
+router.post('/attendance/today-status',
+    apiLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
+    attendanceValidation.todayStatus, // ✅ Use validation from file
+    attendanceController.getTodayAttendanceStatus
+);
+
 // ==================== DASHBOARD ROUTES ====================
 router.get('/dashboard/stats',
     apiLimiter,

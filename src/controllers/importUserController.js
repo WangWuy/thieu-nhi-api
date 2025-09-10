@@ -60,7 +60,7 @@ const importUserController = {
                 try {
                     // Extract data từ format mới (không có MÃ GLV)
                     const saintName = row['Tên thánh'];
-                    const lastName = row['Họ'] || '';
+                    const lastName = row['Họ'] || row['Họ '] || row['HỌ '] || row['HỌ'] || '';
                     const firstName = row['Tên'] || '';
                     const fullName = `${lastName} ${firstName}`.trim();
                     const className = row['LỚP']; // Đọc tên lớp từ cột LỚP

@@ -1,325 +1,11 @@
 const { PrismaClient } = require('@prisma/client');
 const ScoreService = require('../services/scoreService');
 const prisma = new PrismaClient();
+const Redis = require('redis'); // Add Redis for caching
+
+const redis = process.env.REDIS_URL ? Redis.createClient({ url: process.env.REDIS_URL }) : null;
 
 const attendanceController = {
-    // // Mark attendance with auto score update
-    // async markAttendance(req, res) {
-    //     try {
-    //         const { studentId, attendanceDate, attendanceType, isPresent, note } = req.body;
-
-    //         if (!studentId || !attendanceDate || !attendanceType || isPresent === undefined) {
-    //             return res.status(400).json({ error: 'Thiếu thông tin điểm danh' });
-    //         }
-
-    //         const attendance = await prisma.attendance.upsert({
-    //             where: {
-    //                 studentId_attendanceDate_attendanceType: {
-    //                     studentId: parseInt(studentId),
-    //                     attendanceDate: new Date(attendanceDate),
-    //                     attendanceType
-    //                 }
-    //             },
-    //             update: {
-    //                 isPresent,
-    //                 note,
-    //                 markedBy: req.user.userId,
-    //                 markedAt: new Date()
-    //             },
-    //             create: {
-    //                 studentId: parseInt(studentId),
-    //                 attendanceDate: new Date(attendanceDate),
-    //                 attendanceType,
-    //                 isPresent,
-    //                 note,
-    //                 markedBy: req.user.userId
-    //             },
-    //             include: {
-    //                 student: {
-    //                     select: { fullName: true, studentCode: true }
-    //                 }
-    //             }
-    //         });
-
-    //         // Recalculate attendance count from database
-    //         await this.updateAttendanceCount(parseInt(studentId));
-
-    //         res.json(attendance);
-    //     } catch (error) {
-    //         console.error('Mark attendance error:', error);
-    //         res.status(500).json({ error: 'Lỗi server' });
-    //     }
-    // },
-
-    // ✅ FIXED: Batch mark attendance with flexible student code matching
-    // async batchMarkAttendance(req, res) {
-    //     try {
-    //         const { classId } = req.params;
-    //         const { attendanceDate, attendanceType, attendanceRecords } = req.body;
-
-    //         if (!attendanceDate || !attendanceType || !Array.isArray(attendanceRecords)) {
-    //             return res.status(400).json({ error: 'Dữ liệu điểm danh không hợp lệ' });
-    //         }
-
-    //         console.log('📥 Batch attendance request:', {
-    //             classId,
-    //             attendanceDate,
-    //             attendanceType,
-    //             recordCount: attendanceRecords.length,
-    //             records: attendanceRecords
-    //         });
-
-    //         // ✅ VALIDATE: Check if class exists
-    //         const classObj = await prisma.class.findUnique({
-    //             where: { id: parseInt(classId) },
-    //             include: { department: true }
-    //         });
-
-    //         if (!classObj) {
-    //             return res.status(404).json({ error: 'Không tìm thấy lớp học' });
-    //         }
-
-    //         // ✅ FIXED: Handle both full codes and partial numbers - FLEXIBLE SEARCH
-    //         const inputCodes = attendanceRecords.map(record => record.studentId.toString());
-    //         const expandedCodes = [];
-
-    //         inputCodes.forEach(code => {
-    //             expandedCodes.push(code); // Original input
-
-    //             // If it's just numbers, try common prefixes
-    //             if (/^\d+$/.test(code)) {
-    //                 const prefixes = ['TA', 'TN', 'TC', 'TT', 'LP'];
-    //                 prefixes.forEach(prefix => {
-    //                     expandedCodes.push(`${prefix}${code}`);
-    //                 });
-    //             }
-
-    //             // Also try with LP prefix removed (reverse case)
-    //             if (code.startsWith('LP')) {
-    //                 expandedCodes.push(code.substring(2));
-    //             }
-    //         });
-
-    //         console.log('🔍 Looking for students with expanded codes:', expandedCodes);
-
-    //         // ✅ Find students by expanded search
-    //         const validStudents = await prisma.student.findMany({
-    //             where: {
-    //                 studentCode: { in: expandedCodes },
-    //                 classId: parseInt(classId),
-    //                 isActive: true
-    //             },
-    //             select: { id: true, fullName: true, studentCode: true }
-    //         });
-
-    //         console.log('✅ Found valid students:', validStudents);
-
-    //         // ✅ Create mapping: original input → actual student
-    //         const inputToStudent = new Map();
-    //         inputCodes.forEach(originalInput => {
-    //             // Find matching student - try exact match first, then partial
-    //             let student = validStudents.find(s => s.studentCode === originalInput);
-
-    //             if (!student) {
-    //                 // Try partial matching
-    //                 student = validStudents.find(s =>
-    //                     s.studentCode.endsWith(originalInput) ||
-    //                     originalInput.endsWith(s.studentCode.replace(/^[A-Z]+/, ''))
-    //                 );
-    //             }
-
-    //             if (student) {
-    //                 inputToStudent.set(originalInput, student);
-    //                 console.log(`✅ Mapped: "${originalInput}" → Student(${student.id}, ${student.studentCode})`);
-    //             }
-    //         });
-
-    //         const validInputCodes = Array.from(inputToStudent.keys());
-    //         const invalidInputCodes = inputCodes.filter(code => !validInputCodes.includes(code));
-
-    //         if (invalidInputCodes.length > 0) {
-    //             console.error('❌ Invalid student codes:', invalidInputCodes);
-    //             return res.status(400).json({
-    //                 error: 'Một số mã học sinh không hợp lệ hoặc không thuộc lớp này',
-    //                 invalidStudentCodes: invalidInputCodes,
-    //                 validStudents: validStudents.map(s => ({ id: s.id, code: s.studentCode, name: s.fullName })),
-    //                 details: `${invalidInputCodes.length}/${inputCodes.length} học sinh không hợp lệ`
-    //             });
-    //         }
-
-    //         // ✅ PROCESS: Use transaction with increased timeout
-    //         const result = await prisma.$transaction(async (tx) => {
-    //             const results = [];
-    //             const errors = [];
-    //             const affectedStudents = new Set();
-
-    //             // Process each attendance record
-    //             for (const record of attendanceRecords) {
-    //                 try {
-    //                     const originalInput = record.studentId.toString();
-    //                     const student = inputToStudent.get(originalInput);
-
-    //                     if (!student) {
-    //                         throw new Error(`Student input "${originalInput}" not found`);
-    //                     }
-
-    //                     const attendance = await tx.attendance.upsert({
-    //                         where: {
-    //                             studentId_attendanceDate_attendanceType: {
-    //                                 studentId: student.id, // Use actual DB ID
-    //                                 attendanceDate: new Date(attendanceDate),
-    //                                 attendanceType
-    //                             }
-    //                         },
-    //                         update: {
-    //                             isPresent: record.isPresent,
-    //                             note: record.note || null,
-    //                             markedBy: req.user.userId,
-    //                             markedAt: new Date()
-    //                         },
-    //                         create: {
-    //                             studentId: student.id, // Use actual DB ID
-    //                             attendanceDate: new Date(attendanceDate),
-    //                             attendanceType,
-    //                             isPresent: record.isPresent,
-    //                             note: record.note || null,
-    //                             markedBy: req.user.userId
-    //                         },
-    //                         include: {
-    //                             student: {
-    //                                 select: { fullName: true, studentCode: true }
-    //                             }
-    //                         }
-    //                     });
-
-    //                     results.push({
-    //                         originalInput: originalInput, // What Flutter sent
-    //                         studentId: student.id,
-    //                         studentCode: student.studentCode, // Full code from DB
-    //                         studentName: student.fullName,
-    //                         isPresent: attendance.isPresent,
-    //                         status: 'success'
-    //                     });
-
-    //                     affectedStudents.add(student.id);
-
-    //                 } catch (error) {
-    //                     console.error(`❌ Error marking attendance for input ${record.studentId}:`, error);
-    //                     errors.push({
-    //                         originalInput: record.studentId,
-    //                         error: error.message || 'Unknown error',
-    //                         status: 'failed'
-    //                     });
-    //                 }
-    //             }
-
-    //             // ✅ Update attendance counts ONLY (fast operation)
-    //             if (affectedStudents.size > 0) {
-    //                 const studentIdsArray = Array.from(affectedStudents);
-
-    //                 try {
-    //                     // Only update attendance counts in transaction (fast)
-    //                     await tx.$executeRaw`
-    //                         UPDATE students 
-    //                         SET 
-    //                             thursday_attendance_count = (
-    //                                 SELECT COUNT(*) FROM attendance 
-    //                                 WHERE student_id = students.id 
-    //                                 AND attendance_type = 'thursday' 
-    //                                 AND is_present = true
-    //                             ),
-    //                             sunday_attendance_count = (
-    //                                 SELECT COUNT(*) FROM attendance 
-    //                                 WHERE student_id = students.id 
-    //                                 AND attendance_type = 'sunday' 
-    //                                 AND is_present = true
-    //                             )
-    //                         WHERE id = ANY(${studentIdsArray}::int[])
-    //                     `;
-
-    //                     // ✅ REMOVED: Score updates from transaction (too slow)
-    //                     console.log('✅ Attendance counts updated for', studentIdsArray.length, 'students');
-
-    //                 } catch (countError) {
-    //                     console.error('⚠️ Attendance count update error:', countError);
-    //                 }
-    //             }
-
-    //             return {
-    //                 results,
-    //                 errors,
-    //                 affectedStudents: affectedStudents.size,
-    //                 successCount: results.length,
-    //                 errorCount: errors.length
-    //             };
-    //         }, {
-    //             maxWait: 5000,  // Reduced back to 5 seconds
-    //             timeout: 8000   // 8 seconds timeout  
-    //         });
-
-    //         // ✅ BACKGROUND: Update scores after transaction (non-blocking)
-    //         if (result.affectedStudents > 0) {
-    //             console.log('🔄 Starting background score updates for', result.affectedStudents, 'students');
-
-    //             // Get affected student IDs and update scores in background
-    //             const affectedStudentIds = result.results.map(r => r.studentId).filter(Boolean);
-
-    //             // Background score calculation (don't wait for completion)
-    //             setImmediate(() => {
-    //                 Promise.allSettled(
-    //                     affectedStudentIds.map(async (studentId) => {
-    //                         try {
-    //                             await ScoreService.updateStudentScores(studentId, {});
-    //                             console.log(`✅ Background score updated for student ${studentId}`);
-    //                         } catch (err) {
-    //                             console.error(`❌ Background score update failed for student ${studentId}:`, err.message);
-    //                         }
-    //                     })
-    //                 ).then(() => {
-    //                     console.log('🎯 All background score updates completed');
-    //                 });
-    //             });
-    //         }
-
-    //         // ✅ RESPONSE: Detailed success response
-    //         const response = {
-    //             message: `Điểm danh hoàn thành: ${result.successCount} thành công, ${result.errorCount} lỗi`,
-    //             count: result.successCount,
-    //             affectedStudents: result.affectedStudents,
-    //             summary: {
-    //                 total: attendanceRecords.length,
-    //                 success: result.successCount,
-    //                 failed: result.errorCount,
-    //                 successRate: Math.round((result.successCount / attendanceRecords.length) * 100)
-    //             },
-    //             results: result.results,
-    //             errors: result.errors.length > 0 ? result.errors : undefined
-    //         };
-
-    //         console.log('✅ Batch attendance completed:', response.summary);
-
-    //         res.json(response);
-
-    //     } catch (error) {
-    //         console.error('❌ Batch mark attendance error:', error);
-
-    //         // Better error responses
-    //         if (error.code === 'P2003') {
-    //             return res.status(400).json({
-    //                 error: 'Học sinh không tồn tại hoặc không thuộc lớp này',
-    //                 code: 'INVALID_STUDENT',
-    //                 details: error.message
-    //             });
-    //         }
-
-    //         res.status(500).json({
-    //             error: 'Lỗi server khi điểm danh',
-    //             code: 'BATCH_ATTENDANCE_ERROR',
-    //             details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    //         });
-    //     }
-    // },
-
     // Update attendance count by counting from database
     async updateAttendanceCount(studentId) {
         try {
@@ -361,6 +47,22 @@ const attendanceController = {
                 return res.status(400).json({ error: 'Thiếu ngày và loại điểm danh' });
             }
 
+            // Check cache first
+            const cacheKey = `attendance:${classId}:${date}:${type}`;
+            let cachedData = null;
+
+            if (redis) {
+                const cached = await redis.get(cacheKey);
+                if (cached) {
+                    cachedData = JSON.parse(cached);
+                }
+            }
+
+            if (cachedData) {
+                return res.json({ ...cachedData, cached: true });
+            }
+
+            // Get from database
             const students = await prisma.student.findMany({
                 where: {
                     classId: parseInt(classId),
@@ -382,7 +84,13 @@ const attendanceController = {
                 attendanceRecord: student.attendance[0] || null
             }));
 
+            // Cache for 5 minutes
+            if (redis) {
+                await redis.setEx(cacheKey, 300, JSON.stringify(attendanceData));
+            }
+
             res.json(attendanceData);
+
         } catch (error) {
             console.error('Get attendance error:', error);
             res.status(500).json({ error: 'Lỗi server' });
@@ -719,21 +427,203 @@ const attendanceController = {
         }
     },
 
+    // ✅ NEW: Undo attendance - xóa record điểm danh
+    async undoAttendance(req, res) {
+        try {
+            const { studentCodes, attendanceDate, attendanceType, note } = req.body;
+
+            console.log('🔄 Undo attendance request:', {
+                studentCodes: studentCodes.slice(0, 5),
+                attendanceDate,
+                attendanceType,
+                totalCodes: studentCodes.length
+            });
+
+            // ✅ STEP 1: Find students by codes
+            const students = await prisma.student.findMany({
+                where: {
+                    studentCode: { in: studentCodes },
+                    isActive: true
+                },
+                select: {
+                    id: true,
+                    studentCode: true,
+                    fullName: true,
+                    class: {
+                        select: {
+                            id: true,
+                            name: true,
+                            department: { select: { displayName: true } }
+                        }
+                    }
+                }
+            });
+
+            if (students.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Không tìm thấy thiếu nhi nào với các mã đã cung cấp',
+                    count: 0
+                });
+            }
+
+            // ✅ STEP 2: Delete attendance records in transaction
+            const result = await prisma.$transaction(async (tx) => {
+                const deletedRecords = [];
+                const notFoundRecords = [];
+
+                for (const student of students) {
+                    try {
+                        // Check if attendance record exists
+                        const existingRecord = await tx.attendance.findUnique({
+                            where: {
+                                studentId_attendanceDate_attendanceType: {
+                                    studentId: student.id,
+                                    attendanceDate: new Date(attendanceDate),
+                                    attendanceType
+                                }
+                            }
+                        });
+
+                        if (existingRecord) {
+                            // Delete the record
+                            await tx.attendance.delete({
+                                where: {
+                                    studentId_attendanceDate_attendanceType: {
+                                        studentId: student.id,
+                                        attendanceDate: new Date(attendanceDate),
+                                        attendanceType
+                                    }
+                                }
+                            });
+
+                            deletedRecords.push({
+                                studentCode: student.studentCode,
+                                studentName: student.fullName,
+                                className: student.class?.name,
+                                department: student.class?.department?.displayName,
+                                wasPresent: existingRecord.isPresent,
+                                status: 'deleted'
+                            });
+                        } else {
+                            notFoundRecords.push({
+                                studentCode: student.studentCode,
+                                studentName: student.fullName,
+                                status: 'not_found'
+                            });
+                        }
+                    } catch (error) {
+                        console.error(`Error deleting attendance for ${student.studentCode}:`, error);
+                        notFoundRecords.push({
+                            studentCode: student.studentCode,
+                            error: error.message,
+                            status: 'error'
+                        });
+                    }
+                }
+
+                // ✅ STEP 3: Update attendance counts for affected students
+                if (deletedRecords.length > 0) {
+                    const affectedStudentIds = deletedRecords.map(r =>
+                        students.find(s => s.studentCode === r.studentCode)?.id
+                    ).filter(Boolean);
+
+                    await tx.$executeRaw`
+                        UPDATE students 
+                        SET 
+                            thursday_attendance_count = (
+                                SELECT COUNT(*) FROM attendance 
+                                WHERE student_id = students.id 
+                                AND attendance_type = 'thursday' 
+                                AND is_present = true
+                            ),
+                            sunday_attendance_count = (
+                                SELECT COUNT(*) FROM attendance 
+                                WHERE student_id = students.id 
+                                AND attendance_type = 'sunday' 
+                                AND is_present = true
+                            )
+                        WHERE id = ANY(${affectedStudentIds}::int[])
+                    `;
+                }
+
+                return {
+                    deletedRecords,
+                    notFoundRecords,
+                    deletedCount: deletedRecords.length,
+                    notFoundCount: notFoundRecords.length
+                };
+
+            }, {
+                maxWait: 3000,
+                timeout: 5000
+            });
+
+            // ✅ STEP 4: Background score updates
+            if (result.deletedCount > 0) {
+                const affectedStudentIds = result.deletedRecords.map(r =>
+                    students.find(s => s.studentCode === r.studentCode)?.id
+                ).filter(Boolean);
+
+                setImmediate(() => {
+                    Promise.allSettled(
+                        affectedStudentIds.map(async (studentId) => {
+                            try {
+                                await ScoreService.updateStudentScores(studentId, {});
+                            } catch (err) {
+                                console.error(`Background score update failed for student ${studentId}:`, err.message);
+                            }
+                        })
+                    );
+                });
+            }
+
+            // ✅ STEP 5: Response
+            const response = {
+                success: true,
+                message: `Đã hủy điểm danh ${result.deletedCount}/${studentCodes.length} thiếu nhi`,
+                count: result.deletedCount,
+                details: {
+                    total: studentCodes.length,
+                    deleted: result.deletedCount,
+                    notFound: result.notFoundCount
+                },
+                deletedRecords: result.deletedRecords,
+                notFoundRecords: result.notFoundRecords.length > 0 ? result.notFoundRecords : undefined,
+                markedBy: {
+                    userId: req.user.userId,
+                    name: req.user.fullName || req.user.username,
+                    role: req.user.role
+                }
+            };
+
+            console.log('✅ Undo attendance completed:', response.details);
+
+            res.json(response);
+
+        } catch (error) {
+            console.error('❌ Undo attendance error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Lỗi server khi hủy điểm danh',
+                code: 'UNDO_ATTENDANCE_ERROR'
+            });
+        }
+    },
+
     // ✅ NEW: Universal attendance - cross-class attendance marking
     async universalAttendance(req, res) {
         try {
-            const { studentCodes, attendanceDate, attendanceType, note, isPresent } = req.body;
+            const { studentCodes, attendanceDate, attendanceType, note } = req.body;
 
             console.log('🌍 Universal attendance request:', {
-                studentCodes,
+                studentCodes: studentCodes.slice(0, 5),
                 attendanceDate,
                 attendanceType,
-                isPresent,
-                codeCount: studentCodes.length,
-                user: req.user.userId
+                totalCodes: studentCodes.length
             });
 
-            // ✅ STEP 1: Find all students by codes (cross-class lookup)
+            // ✅ STEP 1: Find students by codes
             const students = await prisma.student.findMany({
                 where: {
                     studentCode: { in: studentCodes },
@@ -750,13 +640,6 @@ const attendanceController = {
                 }
             });
 
-            console.log('👥 Found students:', students.map(s => ({
-                code: s.studentCode,
-                name: s.fullName,
-                class: s.class?.name
-            })));
-
-            // ✅ STEP 2: Identify valid vs invalid codes
             const foundCodes = students.map(s => s.studentCode);
             const invalidCodes = studentCodes.filter(code => !foundCodes.includes(code));
 
@@ -769,27 +652,8 @@ const attendanceController = {
                 });
             }
 
-            // ✅ STEP 3: Universal permissions - ALL roles can mark cross-class/cross-department
-            const userRole = req.user.role;
-            const userDepartmentId = req.user.departmentId;
-            const userClassIds = req.user.classIds || [];
-
-            // ✅ UNIVERSAL LOGIC: Allow cross-class and cross-department for all roles
-            let authorizedStudents = students; // Default: allow all
-
-            console.log(`🌍 ${userRole} marking universal attendance for ${students.length} students across departments`);
-
-            // Optional: Add basic validation for active students only
-            authorizedStudents = students.filter(s => s.isActive);
-
-            // Log cross-department summary
-            const departmentSummary = {};
-            authorizedStudents.forEach(student => {
-                const dept = student.class?.department?.displayName || 'Unknown';
-                departmentSummary[dept] = (departmentSummary[dept] || 0) + 1;
-            });
-
-            console.log('📊 Cross-department attendance:', departmentSummary);
+            // ✅ STEP 2: Universal permissions - allow all active students
+            const authorizedStudents = students.filter(s => s.isActive);
 
             if (authorizedStudents.length === 0) {
                 return res.status(400).json({
@@ -800,7 +664,7 @@ const attendanceController = {
                 });
             }
 
-            // ✅ STEP 4: Process attendance in transaction
+            // ✅ STEP 3: Process attendance in transaction
             const result = await prisma.$transaction(async (tx) => {
                 const results = [];
                 const errors = [];
@@ -817,8 +681,8 @@ const attendanceController = {
                                 }
                             },
                             update: {
-                                isPresent: isPresent, // Universal attendance always marks present
-                                note: note || (isPresent ? 'Universal QR Scan' : 'Manual Absent Mark'),
+                                isPresent: true, // Always present
+                                note: note || 'Universal QR Scan',
                                 markedBy: req.user.userId,
                                 markedAt: new Date()
                             },
@@ -826,8 +690,8 @@ const attendanceController = {
                                 studentId: student.id,
                                 attendanceDate: new Date(attendanceDate),
                                 attendanceType,
-                                isPresent: isPresent,
-                                note: note || (isPresent ? 'Universal QR Scan' : 'Manual Absent Mark'),
+                                isPresent: true, // Always present
+                                note: note || 'Universal QR Scan',
                                 markedBy: req.user.userId
                             }
                         });
@@ -837,14 +701,14 @@ const attendanceController = {
                             studentName: student.fullName,
                             className: student.class?.name,
                             department: student.class?.department?.displayName,
-                            isPresent: isPresent,
+                            isPresent: true,
                             status: 'success'
                         });
 
                         affectedStudents.add(student.id);
 
                     } catch (error) {
-                        console.error(`❌ Error marking attendance for ${student.studentCode}:`, error);
+                        console.error(`Error marking attendance for ${student.studentCode}:`, error);
                         errors.push({
                             studentCode: student.studentCode,
                             error: error.message,
@@ -853,10 +717,9 @@ const attendanceController = {
                     }
                 }
 
-                // ✅ STEP 5: Update attendance counts (fast)
+                // ✅ STEP 4: Update attendance counts
                 if (affectedStudents.size > 0) {
                     const studentIdsArray = Array.from(affectedStudents);
-
                     await tx.$executeRaw`
                         UPDATE students 
                         SET 
@@ -885,11 +748,11 @@ const attendanceController = {
                 };
 
             }, {
-                maxWait: 5000,
-                timeout: 10000
+                maxWait: 3000,
+                timeout: 5000
             });
 
-            // ✅ STEP 6: Background score updates
+            // ✅ STEP 5: Background score updates
             if (result.affectedStudents > 0) {
                 const affectedStudentIds = result.results.map(r =>
                     authorizedStudents.find(s => s.studentCode === r.studentCode)?.id
@@ -908,67 +771,78 @@ const attendanceController = {
                 });
             }
 
-            // ✅ STEP 7: Comprehensive response with cross-department summary
+            // ✅ STEP 6: Response
             const response = {
                 success: true,
                 message: `Điểm danh thành công ${result.successCount}/${studentCodes.length} thiếu nhi`,
                 count: result.successCount,
-                isPresent: isPresent,
                 details: {
                     total: studentCodes.length,
-                    found: students.length,
                     success: result.successCount,
                     failed: result.errorCount,
-                    invalid: invalidCodes.length,
-                    crossDepartment: Object.keys(departmentSummary).length > 1 // Multiple departments
+                    invalid: invalidCodes.length
                 },
                 results: result.results,
                 invalidStudentCodes: invalidCodes.length > 0 ? invalidCodes : undefined,
-                errors: result.errors.length > 0 ? result.errors : undefined,
-                crossDepartmentSummary: _generateDepartmentSummary(result.results),
-                markedBy: {
-                    userId: req.user.userId,
-                    name: req.user.fullName || req.user.username,
-                    role: req.user.role,
-                    department: req.user.departmentName || 'Unknown'
-                }
+                errors: result.errors.length > 0 ? result.errors : undefined
             };
 
-            console.log('✅ Universal cross-department attendance completed:', response.details);
+            console.log('✅ Universal attendance completed:', response.details);
 
             res.json(response);
 
         } catch (error) {
             console.error('❌ Universal attendance error:', error);
-
             res.status(500).json({
                 success: false,
                 error: 'Lỗi server khi điểm danh',
-                code: 'UNIVERSAL_ATTENDANCE_ERROR',
-                details: process.env.NODE_ENV === 'development' ? error.message : undefined
+                code: 'UNIVERSAL_ATTENDANCE_ERROR'
             });
+        }
+    },
+
+    // ✅ NEW: Queue score updates for background processing
+    async queueScoreUpdates(studentIds) {
+        try {
+            if (redis) {
+                // Add to Redis queue
+                await redis.lPush('score_update_queue', JSON.stringify({
+                    studentIds,
+                    timestamp: new Date().toISOString(),
+                    type: 'attendance_update'
+                }));
+            } else {
+                // Fallback: immediate background processing
+                setImmediate(() => {
+                    Promise.allSettled(
+                        studentIds.map(async (studentId) => {
+                            try {
+                                await ScoreService.updateStudentScores(studentId, {});
+                            } catch (err) {
+                                console.error(`Score update failed for student ${studentId}:`, err.message);
+                            }
+                        })
+                    );
+                });
+            }
+        } catch (error) {
+            console.error('Queue score updates error:', error);
         }
     },
 
     // ✅ Get today's attendance status for students
     async getTodayAttendanceStatus(req, res) {
         try {
-            const { date, type } = req.query; // date format: YYYY-MM-DD, type: thursday/sunday
-            const { studentCodes } = req.body; // Array of student codes to check
+            const { date, type } = req.query;
+            const { studentCodes } = req.body;
 
-            if (!date || !type) {
+            if (!date || !type || !studentCodes || !Array.isArray(studentCodes)) {
                 return res.status(400).json({
-                    error: 'Date and type are required',
-                    example: { date: '2024-03-15', type: 'thursday' }
+                    error: 'Date, type, and studentCodes array are required'
                 });
             }
 
-            if (!studentCodes || !Array.isArray(studentCodes)) {
-                return res.status(400).json({
-                    error: 'Student codes array is required'
-                });
-            }
-
+            // Single query to get all attendance records
             const attendanceRecords = await prisma.attendance.findMany({
                 where: {
                     attendanceDate: new Date(date),
@@ -997,7 +871,7 @@ const attendanceController = {
                 }
             });
 
-            // Create status map
+            // Build status map
             const statusMap = {};
             attendanceRecords.forEach(record => {
                 statusMap[record.student.studentCode] = {
@@ -1009,9 +883,12 @@ const attendanceController = {
                     markedAt: record.markedAt,
                     markedBy: record.marker?.fullName || record.marker?.saintName,
                     note: record.note,
-                    canToggle: true // Always allow toggle
+                    canToggle: true
                 };
             });
+
+            const attendedCount = Object.values(statusMap).filter(s => s.isPresent).length;
+            const absentCount = Object.values(statusMap).filter(s => !s.isPresent).length;
 
             res.json({
                 date,
@@ -1019,8 +896,8 @@ const attendanceController = {
                 attendanceStatus: statusMap,
                 summary: {
                     total: studentCodes.length,
-                    attended: Object.values(statusMap).filter(s => s.isPresent).length,
-                    absent: Object.values(statusMap).filter(s => !s.isPresent).length,
+                    attended: attendedCount,
+                    absent: absentCount,
                     notMarked: studentCodes.length - Object.keys(statusMap).length
                 }
             });

@@ -302,6 +302,14 @@ router.post('/attendance/today-status',
     attendanceController.getTodayAttendanceStatus
 );
 
+router.post('/attendance/undo',
+    attendanceLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
+    attendanceValidation.universal, // Có thể dùng lại validation
+    attendanceController.undoAttendance
+);
+
 // ==================== DASHBOARD ROUTES ====================
 router.get('/dashboard/stats',
     apiLimiter,

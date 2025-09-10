@@ -29,7 +29,7 @@ app.use(generalLimiter);
 const corsOptions = {
     origin: process.env.NODE_ENV === 'production' 
         ? process.env.FRONTEND_URL?.split(',') || ['https://thienan-admin.vercel.app']
-        : process.env.FRONTEND_URL?.split(',') || ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://localhost:4173'],
+        : process.env.FRONTEND_URL?.split(',') || ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://localhost:58487'],
     credentials: true,
     optionsSuccessStatus: 200,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],

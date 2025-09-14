@@ -11,6 +11,7 @@ const academicYearController = require('../controllers/academicYearController');
 const ScoreService = require('../services/scoreService');
 const reportsController = require('../controllers/reportsController');
 const importUserController = require('../controllers/importUserController');
+const importAttendanceController = require('../controllers/importAttendanceController');
 
 const { verifyToken, requireRole, requireAdmin } = require('../middleware/auth');
 
@@ -308,6 +309,29 @@ router.post('/attendance/undo',
     requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
     attendanceValidation.universal, // Có thể dùng lại validation
     attendanceController.undoAttendance
+);
+
+router.post('/import/attendance/mark-absent',
+    apiLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
+    importAttendanceController.markAbsentRemaining
+);
+
+router.post('/import/attendance',
+    apiLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
+    importAttendanceController.uploadExcel,
+    importAttendanceController.importAttendance
+);
+
+router.post('/import/attendance/preview',
+    apiLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
+    importAttendanceController.uploadExcel,
+    importAttendanceController.previewAttendance
 );
 
 // ==================== DASHBOARD ROUTES ====================

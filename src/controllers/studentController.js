@@ -6,10 +6,10 @@ const studentController = {
     // Get all students (with filters by role) - Updated to include isActive filter
     async getStudents(req, res) {
         try {
-            const { role, departmentId, classId } = req.user;
+            const { role, departmentId } = req.user;
             const {
                 page = 1,
-                limit = 45,
+                limit = 50,
                 search,
                 classFilter,
                 academicYearId,
@@ -20,19 +20,14 @@ const studentController = {
 
             // ✅ Apply isActive filter (dynamic)
             if (isActive !== undefined) {
-                // Nếu có param isActive thì dùng theo param
                 whereClause.isActive = isActive === 'true' || isActive === true;
             } else {
-                // Mặc định chỉ lấy active students
                 whereClause.isActive = true;
             }
 
             // Apply role-based filters
             if (role === 'phan_doan_truong') {
                 whereClause.class = { departmentId: departmentId };
-            } else if (role === 'giao_ly_vien') {
-                // Giáo viên có thể xem tất cả (theo yêu cầu)
-                // Không filter gì thêm
             }
 
             // Apply search filter
@@ -54,34 +49,48 @@ const studentController = {
                 whereClause.academicYearId = parseInt(academicYearId);
             }
 
-            const skip = (page - 1) * limit;
-
-            const [students, total] = await Promise.all([
-                prisma.student.findMany({
-                    where: whereClause,
-                    include: {
-                        class: {
-                            include: {
-                                department: true
-                            }
-                        },
-                        academicYear: {
-                            select: {
-                                id: true,
-                                name: true,
-                                totalWeeks: true,
-                                isCurrent: true
-                            }
+            // Lấy tất cả trước (theo filter)
+            const allStudents = await prisma.student.findMany({
+                where: whereClause,
+                include: {
+                    class: {
+                        include: {
+                            department: true
                         }
                     },
-                    skip,
-                    take: parseInt(limit),
-                    orderBy: [
-                        { fullName: 'asc' }   // ✅ Ép sắp xếp theo tên alphabet
-                    ]
-                }),
-                prisma.student.count({ where: whereClause })
-            ]);
+                    academicYear: {
+                        select: {
+                            id: true,
+                            name: true,
+                            totalWeeks: true,
+                            isCurrent: true
+                        }
+                    }
+                }
+            });
+
+            // Helper: lấy "tên" (token cuối)
+            function getGivenName(fullName = '') {
+                const parts = fullName.trim().split(/\s+/);
+                return parts.length ? parts[parts.length - 1] : '';
+            }
+
+            // Sort theo tên (tiếng Việt, ignore dấu)
+            allStudents.sort((a, b) => {
+                const na = getGivenName(a.fullName).toLowerCase();
+                const nb = getGivenName(b.fullName).toLowerCase();
+
+                const cmp = na.localeCompare(nb, 'vi', { sensitivity: 'base' });
+                if (cmp !== 0) return cmp;
+
+                // Nếu trùng tên thì fallback so sánh cả họ tên
+                return a.fullName.localeCompare(b.fullName, 'vi', { sensitivity: 'base' });
+            });
+
+            // Pagination in-memory
+            const skip = (page - 1) * limit;
+            const students = allStudents.slice(skip, skip + parseInt(limit));
+            const total = allStudents.length;
 
             res.json({
                 students,

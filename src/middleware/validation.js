@@ -38,9 +38,7 @@ const authValidation = {
             .withMessage('Mật khẩu hiện tại là bắt buộc'),
         body('newPassword')
             .isLength({ min: 6 })
-            .withMessage('Mật khẩu mới phải ít nhất 6 ký tự')
-            .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-            .withMessage('Mật khẩu mới phải chứa ít nhất 1 chữ thường, 1 chữ hoa và 1 số'),
+            .withMessage('Mật khẩu mới phải ít nhất 6 ký tự'),
         handleValidationErrors
     ]
 };
@@ -254,18 +252,27 @@ const studentValidation = {
 
         body('phoneNumber')
             .optional()
-            .isMobilePhone('vi-VN')
-            .withMessage('Số điện thoại không hợp lệ'),
+            .custom((value) => {
+                if (!value || value.trim() === '') return true; // Skip if empty
+                return /^(\+84|0)[3|5|7|8|9][0-9]{8}$/.test(value);
+            })
+            .withMessage('Số điện thoại không hợp lệ (VN format)'),
 
         body('parentPhone1')
             .optional()
-            .isMobilePhone('vi-VN')
-            .withMessage('Số điện thoại phụ huynh 1 không hợp lệ'),
+            .custom((value) => {
+                if (!value || value.trim() === '') return true;
+                return /^(\+84|0)[3|5|7|8|9][0-9]{8}$/.test(value);
+            })
+            .withMessage('Số điện thoại phụ huynh 1 không hợp lệ (VN format)'),
 
         body('parentPhone2')
             .optional()
-            .isMobilePhone('vi-VN')
-            .withMessage('Số điện thoại phụ huynh 2 không hợp lệ'),
+            .custom((value) => {
+                if (!value || value.trim() === '') return true;
+                return /^(\+84|0)[3|5|7|8|9][0-9]{8}$/.test(value);
+            })
+            .withMessage('Số điện thoại phụ huynh 2 không hợp lệ (VN format)'),
 
         body('academicYearId')
             .optional()
@@ -565,7 +572,7 @@ const attendanceValidation = {
                 const today = new Date();
                 const diffTime = Math.abs(today - inputDate);
                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                
+
                 // Allow checking attendance within 7 days range
                 if (diffDays > 7) {
                     throw new Error('Chỉ được kiểm tra điểm danh trong vòng 7 ngày');

@@ -5,12 +5,12 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 const authController = {
-    // Login với improved error handling
+    // Login vá»›i improved error handling
     async login(req, res) {
         try {
             const { username, password } = req.body;
 
-            // Tìm user với lowercase username để case-insensitive
+            // TÃ¬m user vá»›i lowercase username Ä‘á»ƒ case-insensitive
             const user = await prisma.user.findFirst({
                 where: {
                     username: {
@@ -32,7 +32,7 @@ const authController = {
                 }
             });
 
-            // Check user existence và active status
+            // Check user existence vÃ  active status
             if (!user) {
                 return res.status(401).json({
                     error: 'Invalid Credentials',
@@ -80,7 +80,7 @@ const authController = {
             const { passwordHash, ...userWithoutPassword } = user;
 
             // Log successful login
-            console.log(`✅ Login successful: ${user.username} (${user.role}) from IP: ${req.ip}`);
+            console.log(`Login successful: ${user.username} (${user.role}) from IP: ${req.ip}`);
 
             res.json({
                 success: true,
@@ -91,7 +91,7 @@ const authController = {
             });
 
         } catch (error) {
-            console.error('❌ Login error:', error);
+            console.error('Get user info error:', error);
             res.status(500).json({
                 error: 'Internal Server Error',
                 message: 'Lỗi server, vui lòng thử lại sau'
@@ -99,7 +99,7 @@ const authController = {
         }
     },
 
-    // Get current user info với caching
+    // Get current user info vá»›i caching
     async me(req, res) {
         try {
             const user = await prisma.user.findUnique({
@@ -139,7 +139,7 @@ const authController = {
 
             const { passwordHash, ...userWithoutPassword } = user;
 
-            // Fix: Gọi function thay vì this.getUserPermissions
+            // Fix: Gá»i function thay vÃ¬ this.getUserPermissions
             const permissions = getUserPermissions(user.role);
 
             res.json({
@@ -148,7 +148,7 @@ const authController = {
             });
 
         } catch (error) {
-            console.error('❌ Get user info error:', error);
+            console.error('Get user info error:', error);
             res.status(500).json({
                 error: 'Internal Server Error',
                 message: 'Lỗi server, vui lòng thử lại sau'
@@ -156,9 +156,14 @@ const authController = {
         }
     },
 
-    // Change password với security improvements
+    // Change password vá»›i security improvements
     async changePassword(req, res) {
         try {
+            console.log('Change password request:', {
+                userId: req.user.userId,
+                hasCurrentPassword: !!req.body.currentPassword,
+                hasNewPassword: !!req.body.newPassword
+            });
             const { currentPassword, newPassword } = req.body;
 
             // Get current user
@@ -191,7 +196,7 @@ const authController = {
                 });
             }
 
-            // Hash new password với higher rounds cho security
+            // Hash new password vá»›i higher rounds cho security
             const saltRounds = parseInt(process.env.BCRYPT_ROUNDS) || 12;
             const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
 
@@ -205,7 +210,7 @@ const authController = {
             });
 
             // Log password change
-            console.log(`🔒 Password changed for user: ${user.username} from IP: ${req.ip}`);
+            console.log(`Password changed for user: ${user.username} from IP: ${req.ip}`);
 
             res.json({
                 success: true,
@@ -213,7 +218,7 @@ const authController = {
             });
 
         } catch (error) {
-            console.error('❌ Change password error:', error);
+            console.error('Change password error:', error);
             res.status(500).json({
                 error: 'Internal Server Error',
                 message: 'Lỗi server, vui lòng thử lại sau'

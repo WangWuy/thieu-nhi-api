@@ -1,9 +1,33 @@
 const { PrismaClient } = require('@prisma/client');
 const ScoreService = require('../services/scoreService');
 const prisma = new PrismaClient();
-const Redis = require('redis'); // Add Redis for caching
 
-const redis = process.env.REDIS_URL ? Redis.createClient({ url: process.env.REDIS_URL }) : null;
+// Redis connection with proper error handling
+let redis = null;
+if (process.env.REDIS_URL) {
+    const Redis = require('redis');
+    redis = Redis.createClient({ url: process.env.REDIS_URL });
+
+    redis.on('error', (err) => {
+        console.log('Redis Client Error:', err);
+        redis = null; // Set to null if error
+    });
+
+    redis.on('connect', () => {
+        console.log('✅ Redis connected');
+    });
+
+    redis.on('disconnect', () => {
+        console.log('❌ Redis disconnected');
+        redis = null; // Set to null if disconnected
+    });
+
+    // Connect to Redis
+    redis.connect().catch((err) => {
+        console.log('Redis connection failed:', err);
+        redis = null;
+    });
+}
 
 const attendanceController = {
     // Update attendance count by counting from database
@@ -47,22 +71,23 @@ const attendanceController = {
                 return res.status(400).json({ error: 'Thiếu ngày và loại điểm danh' });
             }
 
-            // Check cache first
+            // Safe Redis check
             const cacheKey = `attendance:${classId}:${date}:${type}`;
             let cachedData = null;
 
-            if (redis) {
-                const cached = await redis.get(cacheKey);
-                if (cached) {
-                    cachedData = JSON.parse(cached);
+            if (redis && redis.isReady) {
+                try {
+                    const cached = await redis.get(cacheKey);
+                    if (cached) {
+                        cachedData = JSON.parse(cached);
+                        return res.json(Array.isArray(cachedData) ? cachedData : Object.values(cachedData));
+                    }
+                } catch (cacheError) {
+                    console.log('Cache error, continuing without cache:', cacheError.message);
                 }
             }
 
-            if (cachedData) {
-                return res.json({ ...cachedData, cached: true });
-            }
-
-            // Get from database
+            // Direct database query
             const students = await prisma.student.findMany({
                 where: {
                     classId: parseInt(classId),
@@ -84,9 +109,13 @@ const attendanceController = {
                 attendanceRecord: student.attendance[0] || null
             }));
 
-            // Cache for 5 minutes
-            if (redis) {
-                await redis.setEx(cacheKey, 300, JSON.stringify(attendanceData));
+            // Safe cache set
+            if (redis && redis.isReady) {
+                try {
+                    await redis.setEx(cacheKey, 300, JSON.stringify(attendanceData));
+                } catch (cacheError) {
+                    console.log('Cache set error:', cacheError.message);
+                }
             }
 
             res.json(attendanceData);

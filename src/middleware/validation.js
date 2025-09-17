@@ -159,17 +159,26 @@ const studentValidation = {
 
         body('phoneNumber')
             .optional()
-            .isMobilePhone('vi-VN')
+            .custom((value) => {
+                if (!value || value.trim() === '') return true; // Skip if empty
+                return /^(\+84|0)[3|5|7|8|9][0-9]{8}$/.test(value);
+            })
             .withMessage('Số điện thoại không hợp lệ'),
 
         body('parentPhone1')
             .optional()
-            .isMobilePhone('vi-VN')
+            .custom((value) => {
+                if (!value || value.trim() === '') return true; // Skip if empty
+                return /^(\+84|0)[3|5|7|8|9][0-9]{8}$/.test(value);
+            })
             .withMessage('Số điện thoại phụ huynh 1 không hợp lệ'),
 
         body('parentPhone2')
             .optional()
-            .isMobilePhone('vi-VN')
+            .custom((value) => {
+                if (!value || value.trim() === '') return true; // Skip if empty
+                return /^(\+84|0)[3|5|7|8|9][0-9]{8}$/.test(value);
+            })
             .withMessage('Số điện thoại phụ huynh 2 không hợp lệ'),
 
         body('academicYearId')

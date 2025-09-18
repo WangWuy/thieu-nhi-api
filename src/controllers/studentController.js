@@ -21,8 +21,6 @@ const studentController = {
             // ✅ Apply isActive filter (dynamic)
             if (isActive !== undefined) {
                 whereClause.isActive = isActive === 'true' || isActive === true;
-            } else {
-                whereClause.isActive = true;
             }
 
             // Apply role-based filters

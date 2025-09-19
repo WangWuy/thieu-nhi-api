@@ -2,6 +2,7 @@ const { PrismaClient } = require('@prisma/client');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const ScoreService = require('../services/scoreService');
+const { getWeekRange, getAttendanceTargetDate, formatWeekRange } = require('../utils/weekUtils');
 
 const prisma = new PrismaClient();
 
@@ -25,15 +26,25 @@ const importAttendanceController = {
             if (!req.file) {
                 return res.status(400).json({ error: 'Vui lòng chọn file Excel' });
             }
-
+    
             const { attendanceDate, attendanceType } = req.body;
-
+    
             if (!attendanceDate || !attendanceType) {
                 return res.status(400).json({ 
                     error: 'Vui lòng cung cấp ngày điểm danh và loại điểm danh' 
                 });
             }
-
+    
+            // Tính target date sử dụng weekUtils
+            const targetDate = getAttendanceTargetDate(attendanceDate, attendanceType);
+            const weekInfo = {
+                inputDate: attendanceDate,
+                targetDate: targetDate.toISOString().split('T')[0],
+                weekRange: formatWeekRange(attendanceDate)
+            };
+    
+            console.log('Import attendance with week logic:', weekInfo);
+    
             // Parse Excel file
             const workbook = XLSX.read(req.file.buffer, { 
                 type: 'buffer',
@@ -41,85 +52,47 @@ const importAttendanceController = {
             });
             const worksheet = workbook.Sheets[workbook.SheetNames[0]];
             const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false });
-
-            if (data.length < 2) {
+    
+            if (data.length === 0) {
                 return res.status(400).json({ 
-                    error: 'File Excel phải có ít nhất 2 dòng (header + data)' 
+                    error: 'File Excel không có dữ liệu' 
                 });
             }
-
-            // Find header row and column indices
-            let headerRowIndex = -1;
-            let studentCodeCol = -1;
-            let attendanceCol = -1;
-
-            // Search for header row
-            for (let i = 0; i < Math.min(5, data.length); i++) {
-                const row = data[i];
-                for (let j = 0; j < row.length; j++) {
-                    const cell = String(row[j] || '').toLowerCase();
-                    if (cell.includes('mã') && (cell.includes('tn') || cell.includes('học sinh'))) {
-                        headerRowIndex = i;
-                        studentCodeCol = j;
-                        break;
-                    }
-                }
-                if (headerRowIndex !== -1) break;
-            }
-
-            if (headerRowIndex === -1 || studentCodeCol === -1) {
-                return res.status(400).json({ 
-                    error: 'Không tìm thấy cột "Mã TN" trong file Excel' 
-                });
-            }
-
-            // Find attendance column (usually next to student code or has "điểm danh", "có mặt", etc.)
-            const headerRow = data[headerRowIndex];
-            for (let j = studentCodeCol + 1; j < headerRow.length; j++) {
-                const cell = String(headerRow[j] || '').toLowerCase();
-                if (cell.includes('điểm') || cell.includes('có') || cell.includes('vắng') || 
-                    cell.includes('x') || cell.includes('attendance')) {
-                    attendanceCol = j;
-                    break;
-                }
-            }
-
-            // If no specific attendance column found, use the column right after student code
-            if (attendanceCol === -1) {
-                attendanceCol = studentCodeCol + 1;
-            }
-
-            const results = { success: [], failed: [], updated: [] };
-            const affectedStudentIds = new Set();
-
-            // Process data rows
-            for (let i = headerRowIndex + 1; i < data.length; i++) {
-                const row = data[i];
+    
+            // Thu thập tất cả mã thiếu nhi từ file (bỏ qua header, lấy tất cả cells có data)
+            const studentCodesFromFile = new Set();
+            
+            data.forEach((row, rowIndex) => {
+                if (!row || row.length === 0) return;
                 
-                if (!row || row.length === 0) continue;
-
+                row.forEach(cell => {
+                    if (cell && typeof cell === 'string' || typeof cell === 'number') {
+                        const code = String(cell).trim();
+                        if (code && code.length > 0) {
+                            studentCodesFromFile.add(code);
+                        }
+                    }
+                });
+            });
+    
+            if (studentCodesFromFile.size === 0) {
+                return res.status(400).json({ 
+                    error: 'Không tìm thấy mã thiếu nhi nào trong file' 
+                });
+            }
+    
+            console.log(`Found ${studentCodesFromFile.size} student codes in file`);
+    
+            const results = { 
+                present: [], 
+                absent: [], 
+                failed: [],
+                notFound: []
+            };
+    
+            // STEP 1: Đánh dấu có mặt cho các mã trong file
+            for (const studentCode of studentCodesFromFile) {
                 try {
-                    const studentCode = String(row[studentCodeCol] || '').trim();
-                    const attendanceValue = row[attendanceCol];
-
-                    if (!studentCode) {
-                        continue; // Skip empty rows
-                    }
-
-                    // Determine attendance status
-                    let isPresent = false;
-                    if (attendanceValue !== undefined && attendanceValue !== null) {
-                        const value = String(attendanceValue).toLowerCase().trim();
-                        // Present if: "x", "có", "1", "true", "có mặt", non-empty
-                        isPresent = value === 'x' || 
-                                   value === '1' || 
-                                   value === 'true' ||
-                                   value.includes('có') ||
-                                   value.includes('present') ||
-                                   (value !== '' && value !== '0' && value !== 'false');
-                    }
-
-                    // Find student
                     const student = await prisma.student.findUnique({
                         where: { studentCode: studentCode },
                         include: { 
@@ -131,78 +104,79 @@ const importAttendanceController = {
                             }
                         }
                     });
-
+    
                     if (!student) {
-                        results.failed.push({
-                            row: i + 1,
+                        results.notFound.push({
                             studentCode,
                             error: 'Không tìm thấy học sinh'
                         });
                         continue;
                     }
-
+    
                     if (!student.isActive) {
                         results.failed.push({
-                            row: i + 1,
                             studentCode,
                             error: 'Học sinh đã bị vô hiệu hóa'
                         });
                         continue;
                     }
-
-                    // Create or update attendance record
-                    const attendanceRecord = await prisma.attendance.upsert({
+    
+                    // Tạo/cập nhật attendance record - có mặt
+                    await prisma.attendance.upsert({
                         where: {
                             studentId_attendanceDate_attendanceType: {
                                 studentId: student.id,
-                                attendanceDate: new Date(attendanceDate),
+                                attendanceDate: targetDate,
                                 attendanceType: attendanceType
                             }
                         },
                         update: {
-                            isPresent: isPresent,
-                            note: `Import từ Excel - ${req.file.originalname}`,
+                            isPresent: true,
+                            note: `Import từ Excel - ${req.file.originalname} (${weekInfo.weekRange})`,
                             markedBy: req.user.userId,
                             markedAt: new Date()
                         },
                         create: {
                             studentId: student.id,
-                            attendanceDate: new Date(attendanceDate),
+                            attendanceDate: targetDate,
                             attendanceType: attendanceType,
-                            isPresent: isPresent,
-                            note: `Import từ Excel - ${req.file.originalname}`,
+                            isPresent: true,
+                            note: `Import từ Excel - ${req.file.originalname} (${weekInfo.weekRange})`,
                             markedBy: req.user.userId
                         }
                     });
-
-                    if (attendanceRecord) {
-                        results.success.push({
-                            row: i + 1,
-                            studentCode,
-                            studentName: student.fullName,
-                            className: student.class?.name,
-                            department: student.class?.department?.displayName,
-                            isPresent: isPresent,
-                            status: 'imported'
-                        });
-
-                        affectedStudentIds.add(student.id);
-                    }
-
+    
+                    results.present.push({
+                        studentCode,
+                        studentName: student.fullName,
+                        className: student.class?.name,
+                        department: student.class?.department?.displayName,
+                        actualDate: targetDate.toISOString().split('T')[0],
+                        weekRange: weekInfo.weekRange
+                    });
+    
                 } catch (error) {
                     results.failed.push({
-                        row: i + 1,
-                        studentCode: row[studentCodeCol] || `Dòng ${i + 1}`,
+                        studentCode,
                         error: error.message
                     });
                 }
             }
-
-            // Update attendance counts for affected students
-            if (affectedStudentIds.size > 0) {
-                const studentIdsArray = Array.from(affectedStudentIds);
+    
+            // STEP 2: Không tự động đánh vắng - chỉ import bổ sung
+            // Bỏ phần tự động đánh vắng vì đây chỉ là import bổ sung
+    
+            // STEP 3: Update attendance counts chỉ cho những student được import
+            if (results.present.length > 0) {
+                const affectedStudents = await prisma.student.findMany({
+                    where: {
+                        studentCode: { in: results.present.map(r => r.studentCode) }
+                    },
+                    select: { id: true }
+                });
                 
-                // Update counts in database
+                const studentIds = affectedStudents.map(s => s.id);
+    
                 await prisma.$executeRaw`
                     UPDATE students 
                     SET 
@@ -218,13 +192,13 @@ const importAttendanceController = {
                             AND attendance_type = 'sunday' 
                             AND is_present = true
                         )
-                    WHERE id = ANY(${studentIdsArray}::int[])
+                    WHERE id = ANY(${studentIds}::int[])
                 `;
-
+    
                 // Background score updates
                 setImmediate(() => {
                     Promise.allSettled(
-                        studentIdsArray.map(async (studentId) => {
+                        studentIds.map(async (studentId) => {
                             try {
                                 await ScoreService.updateStudentScores(studentId, {});
                             } catch (err) {
@@ -234,26 +208,27 @@ const importAttendanceController = {
                     );
                 });
             }
-
+    
             // Generate summary
             const summary = {
-                totalRows: data.length - headerRowIndex - 1,
-                successful: results.success.length,
+                totalCodesInFile: studentCodesFromFile.size,
+                present: results.present.length,
                 failed: results.failed.length,
-                attendanceDate,
-                attendanceType,
+                notFound: results.notFound.length,
+                weekInfo,
                 fileName: req.file.originalname
             };
-
+    
             console.log('✅ Attendance import completed:', summary);
-
+    
             res.json({
                 success: true,
-                message: `Import hoàn thành: ${results.success.length} thành công, ${results.failed.length} thất bại`,
+                message: `Import hoàn thành: ${results.present.length} thiếu nhi được đánh có mặt`,
                 summary,
                 results: {
-                    successful: results.success,
-                    failed: results.failed.length > 0 ? results.failed : undefined
+                    present: results.present,
+                    failed: results.failed.length > 0 ? results.failed : undefined,
+                    notFound: results.notFound.length > 0 ? results.notFound : undefined
                 },
                 markedBy: {
                     userId: req.user.userId,
@@ -261,7 +236,7 @@ const importAttendanceController = {
                     role: req.user.role
                 }
             });
-
+    
         } catch (error) {
             console.error('❌ Import attendance error:', error);
             res.status(500).json({ 
@@ -373,7 +348,7 @@ const importAttendanceController = {
         }
     },
 
-    // Mark absent for students not in attendance
+    // Mark absent for students not in attendance - theo tuần
     async markAbsentRemaining(req, res) {
         try {
             const { attendanceDate, attendanceType } = req.body;
@@ -384,13 +359,21 @@ const importAttendanceController = {
                 });
             }
 
-            // Get all students who haven't been marked for this date/type
+            // Tính target date và week info
+            const targetDate = getAttendanceTargetDate(attendanceDate, attendanceType);
+            const weekInfo = {
+                inputDate: attendanceDate,
+                targetDate: targetDate.toISOString().split('T')[0],
+                weekRange: formatWeekRange(attendanceDate)
+            };
+
+            // Get all students who haven't been marked for this target date/type
             const unmarkedStudents = await prisma.student.findMany({
                 where: {
                     isActive: true,
                     attendance: {
                         none: {
-                            attendanceDate: new Date(attendanceDate),
+                            attendanceDate: targetDate,
                             attendanceType: attendanceType
                         }
                     }
@@ -413,10 +396,10 @@ const importAttendanceController = {
                     await prisma.attendance.create({
                         data: {
                             studentId: student.id,
-                            attendanceDate: new Date(attendanceDate),
+                            attendanceDate: targetDate,
                             attendanceType: attendanceType,
                             isPresent: false,
-                            note: 'Tự động đánh vắng - Không có trong danh sách điểm danh',
+                            note: `Tự động đánh vắng - Không có trong danh sách điểm danh (${weekInfo.weekRange})`,
                             markedBy: req.user.userId
                         }
                     });
@@ -425,7 +408,9 @@ const importAttendanceController = {
                         studentCode: student.studentCode,
                         studentName: student.fullName,
                         className: student.class?.name,
-                        department: student.class?.department?.displayName
+                        department: student.class?.department?.displayName,
+                        actualDate: targetDate.toISOString().split('T')[0],
+                        weekRange: weekInfo.weekRange
                     });
 
                     affectedStudentIds.push(student.id);
@@ -478,8 +463,7 @@ const importAttendanceController = {
                 summary: {
                     totalMarkedAbsent: results.markedAbsent.length,
                     failed: results.failed.length,
-                    attendanceDate,
-                    attendanceType
+                    weekInfo
                 },
                 results: {
                     markedAbsent: results.markedAbsent,

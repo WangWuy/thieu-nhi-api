@@ -575,19 +575,7 @@ const attendanceValidation = {
             .notEmpty()
             .withMessage('Date is required')
             .isISO8601()
-            .withMessage('Invalid date format (YYYY-MM-DD)')
-            .custom((value) => {
-                const inputDate = new Date(value);
-                const today = new Date();
-                const diffTime = Math.abs(today - inputDate);
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-                // Allow checking attendance within 7 days range
-                if (diffDays > 7) {
-                    throw new Error('Chỉ được kiểm tra điểm danh trong vòng 7 ngày');
-                }
-                return true;
-            }),
+            .withMessage('Invalid date format (YYYY-MM-DD)'),
         query('type')
             .isIn(['thursday', 'sunday'])
             .withMessage('Type must be thursday or sunday'),

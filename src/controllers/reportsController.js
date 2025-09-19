@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const { getWeekRange, formatWeekRange } = require('../utils/weekUtils');
 
 const reportsController = {
     // Get attendance report data
@@ -23,11 +24,14 @@ const reportsController = {
                 };
             }
 
-            // Date filtering
+            // Date filtering - mở rộng theo tuần
             if (startDate && endDate) {
+                const startWeek = getWeekRange(startDate);
+                const endWeek = getWeekRange(endDate);
+
                 whereClause.attendanceDate = {
-                    gte: new Date(startDate),
-                    lte: new Date(endDate)
+                    gte: startWeek.startDate,
+                    lte: endWeek.endDate
                 };
             }
 
@@ -47,6 +51,23 @@ const reportsController = {
                     { attendanceDate: 'desc' },
                     { student: { fullName: 'asc' } }
                 ]
+            });
+
+            // Group by weeks for better reporting
+            const weeklyData = {};
+            attendanceData.forEach(record => {
+                const { startDate: weekStart } = getWeekRange(record.attendanceDate);
+                const weekKey = weekStart.toISOString().split('T')[0];
+
+                if (!weeklyData[weekKey]) {
+                    weeklyData[weekKey] = {
+                        weekStart: weekKey,
+                        weekEnd: new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                        records: []
+                    };
+                }
+
+                weeklyData[weekKey].records.push(record);
             });
 
             // Get summary stats
@@ -70,6 +91,7 @@ const reportsController = {
 
             res.json({
                 attendanceData,
+                weeklyData: Object.values(weeklyData),
                 summary,
                 filters: { startDate, endDate, classId, departmentId },
                 totalRecords: attendanceData.length
@@ -579,13 +601,14 @@ const reportsController = {
     },
 
     // Export simplified attendance report (chỉ mã thiếu nhi)
+    // Export simplified attendance report - theo tuần
     async exportSimpleAttendanceReport(req, res) {
         try {
             const { startDate, endDate, classId, departmentId, format = 'xlsx' } = req.query;
             const { role, departmentId: userDepartmentId } = req.user;
 
             let whereClause = {
-                isPresent: true // Chỉ lấy những người có mặt
+                isPresent: true
             };
 
             // Role-based filtering  
@@ -601,15 +624,17 @@ const reportsController = {
                 };
             }
 
-            // Date filtering
+            // Date filtering - mở rộng theo tuần
             if (startDate && endDate) {
+                const startWeek = getWeekRange(startDate);
+                const endWeek = getWeekRange(endDate);
+
                 whereClause.attendanceDate = {
-                    gte: new Date(startDate),
-                    lte: new Date(endDate)
+                    gte: startWeek.startDate,
+                    lte: endWeek.endDate
                 };
             }
 
-            // Get attendance data - chỉ lấy mã thiếu nhi và ngày
             const attendanceData = await prisma.attendance.findMany({
                 where: whereClause,
                 select: {
@@ -618,7 +643,7 @@ const reportsController = {
                     student: {
                         select: {
                             studentCode: true,
-                            fullName: true // Để hiển thị trong UI, không export
+                            fullName: true
                         }
                     }
                 },
@@ -628,68 +653,61 @@ const reportsController = {
                 ]
             });
 
-            // Group by date for easier export
-            const groupedByDate = {};
+            // Group by week
+            const groupedByWeek = {};
             attendanceData.forEach(record => {
-                const dateKey = new Date(record.attendanceDate).toISOString().split('T')[0];
+                const { startDate: weekStart, endDate: weekEnd } = getWeekRange(record.attendanceDate);
+                const weekKey = weekStart.toISOString().split('T')[0];
                 const typeKey = record.attendanceType;
-                const key = `${dateKey}_${typeKey}`;
+                const key = `${weekKey}_${typeKey}`;
 
-                if (!groupedByDate[key]) {
-                    groupedByDate[key] = {
-                        date: dateKey,
+                if (!groupedByWeek[key]) {
+                    groupedByWeek[key] = {
+                        weekStart: weekKey,
+                        weekEnd: weekEnd.toISOString().split('T')[0],
                         type: typeKey,
                         studentCodes: []
                     };
                 }
 
-                groupedByDate[key].studentCodes.push(record.student.studentCode);
+                groupedByWeek[key].studentCodes.push(record.student.studentCode);
             });
 
             if (format === 'xlsx') {
                 const XLSX = require('xlsx');
 
-                // Tạo dữ liệu cho Excel
-                const excelData = Object.values(groupedByDate)
-                    .sort((a, b) => new Date(b.date) - new Date(a.date))
+                const excelData = Object.values(groupedByWeek)
+                    .sort((a, b) => new Date(b.weekStart) - new Date(a.weekStart))
                     .map(group => ({
-                        'Ngày': new Date(group.date).toLocaleDateString('vi-VN'),
+                        'Tuần': `${new Date(group.weekStart).toLocaleDateString('vi-VN')} - ${new Date(group.weekEnd).toLocaleDateString('vi-VN')}`,
                         'Loại điểm danh': group.type === 'thursday' ? 'Thứ 5' : 'Chủ nhật',
                         'Số lượng': group.studentCodes.length,
                         'Mã thiếu nhi có mặt': group.studentCodes.join('; ')
                     }));
 
-                // Tạo workbook và worksheet
                 const workbook = XLSX.utils.book_new();
                 const worksheet = XLSX.utils.json_to_sheet(excelData);
 
-                // Set column widths
                 worksheet['!cols'] = [
-                    { wch: 12 }, // Ngày
+                    { wch: 25 }, // Tuần
                     { wch: 15 }, // Loại điểm danh  
                     { wch: 10 }, // Số lượng
                     { wch: 60 }  // Mã thiếu nhi
                 ];
 
-                // Add worksheet to workbook
-                XLSX.utils.book_append_sheet(workbook, worksheet, 'Điểm danh');
+                XLSX.utils.book_append_sheet(workbook, worksheet, 'Điểm danh theo tuần');
 
-                // Generate filename
-                const filename = `diem_danh_${startDate || 'all'}_${endDate || 'all'}.xlsx`;
-
-                // Generate buffer
+                const filename = `diem_danh_tuan_${startDate || 'all'}_${endDate || 'all'}.xlsx`;
                 const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
-                // Set headers and send file
                 res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
                 res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
                 res.send(buffer);
             } else {
-                // Return JSON
                 res.json({
-                    attendanceByDate: groupedByDate,
+                    attendanceByWeek: groupedByWeek,
                     summary: {
-                        totalDays: Object.keys(groupedByDate).length,
+                        totalWeeks: Object.keys(groupedByWeek).length,
                         totalAttendances: attendanceData.length,
                         dateRange: { startDate, endDate }
                     },

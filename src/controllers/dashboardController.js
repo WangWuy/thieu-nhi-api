@@ -111,7 +111,7 @@ const dashboardController = {
             // Additional stats for ban_dieu_hanh role
             let additionalStats = {};
             if (role === 'ban_dieu_hanh') {
-                const [recentAttendance, activeUsers] = await Promise.all([
+                const [recentAttendance, activeUsers, totalActiveStudents] = await Promise.all([
                     // Recent attendance stats (last 7 days)
                     prisma.attendance.groupBy({
                         by: ['attendanceType', 'isPresent'],
@@ -128,18 +128,28 @@ const dashboardController = {
                         by: ['role'],
                         where: { isActive: true },
                         _count: { id: true }
+                    }),
+
+                    // Tổng số học sinh active để tính notMarked
+                    prisma.student.count({
+                        where: { isActive: true }
                     })
                 ]);
+
+                const thursdayPresent = recentAttendance.find(a => a.attendanceType === 'thursday' && a.isPresent)?._count.id || 0;
+                const thursdayAbsent = recentAttendance.find(a => a.attendanceType === 'thursday' && !a.isPresent)?._count.id || 0;
+                const sundayPresent = recentAttendance.find(a => a.attendanceType === 'sunday' && a.isPresent)?._count.id || 0;
+                const sundayAbsent = recentAttendance.find(a => a.attendanceType === 'sunday' && !a.isPresent)?._count.id || 0;
 
                 additionalStats = {
                     recentAttendance: {
                         thursday: {
-                            present: recentAttendance.find(a => a.attendanceType === 'thursday' && a.isPresent)?._count.id || 0,
-                            absent: recentAttendance.find(a => a.attendanceType === 'thursday' && !a.isPresent)?._count.id || 0
+                            present: thursdayPresent,
+                            notMarked: Math.max(0, totalActiveStudents - thursdayPresent - thursdayAbsent)
                         },
                         sunday: {
-                            present: recentAttendance.find(a => a.attendanceType === 'sunday' && a.isPresent)?._count.id || 0,
-                            absent: recentAttendance.find(a => a.attendanceType === 'sunday' && !a.isPresent)?._count.id || 0
+                            present: sundayPresent,
+                            notMarked: Math.max(0, totalActiveStudents - sundayPresent - sundayAbsent)
                         }
                     },
                     usersByRole: {

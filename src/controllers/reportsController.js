@@ -1,5 +1,5 @@
 const { prisma } = require('../../prisma/client');
-const { getWeekRange } = require('../utils/weekUtils');
+const { getWeekRange, getAttendanceTargetDate } = require('../utils/weekUtils');
 
 const reportsController = {
     // Get attendance report data
@@ -600,11 +600,11 @@ const reportsController = {
     async exportSimpleAttendanceReport(req, res) {
         try {
             const { startDate, endDate, classId, format = 'xlsx' } = req.query;
-    
+
             if (!classId) {
                 return res.status(400).json({ error: 'Phải chọn lớp để tạo báo cáo' });
             }
-    
+
             // Lấy tất cả học sinh trong lớp
             const students = await prisma.student.findMany({
                 where: {
@@ -618,8 +618,8 @@ const reportsController = {
                 },
                 orderBy: { fullName: 'asc' }
             });
-    
-            // Lấy dữ liệu điểm danh
+
+            // Lấy dữ liệu điểm danh trong khoảng thời gian
             const attendanceData = await prisma.attendance.findMany({
                 where: {
                     student: { classId: parseInt(classId) },
@@ -631,30 +631,71 @@ const reportsController = {
                 },
                 select: {
                     studentId: true,
-                    attendanceDate: true
+                    attendanceDate: true,
+                    attendanceType: true
                 }
             });
-    
-            // Tạo danh sách ngày và map điểm danh
-            const uniqueDates = [...new Set(attendanceData.map(a => 
-                a.attendanceDate.toISOString().split('T')[0]
-            ))].sort();
-    
-            const attendanceMap = {};
+
+            // Group by week và attendance type, với ngày chính xác
+            const weeklyData = {};
             attendanceData.forEach(record => {
-                const dateKey = record.attendanceDate.toISOString().split('T')[0];
-                attendanceMap[`${record.studentId}_${dateKey}`] = true;
+                const { startDate: weekStart } = getWeekRange(record.attendanceDate);
+                const weekKey = weekStart.toISOString().split('T')[0];
+                const typeKey = record.attendanceType;
+                const key = `${weekKey}_${typeKey}`;
+
+                // Sửa phần này trong exportSimpleAttendanceReport
+                if (!weeklyData[key]) {
+                    // Tính ngày chính xác của loại điểm danh trong tuần
+                    const weekStartDate = new Date(weekStart); // weekStart đã là string YYYY-MM-DD
+                    let correctDate;
+
+                    if (typeKey === 'thursday') {
+                        // Thứ 5 = ngày thứ 4 của tuần (0=CN, 1=T2, ..., 4=T5)
+                        correctDate = new Date(weekStartDate);
+                        correctDate.setDate(weekStartDate.getDate() + 4);
+                    } else if (typeKey === 'sunday') {
+                        // Chủ nhật = ngày thứ 6 của tuần (tuần bắt đầu từ T2)
+                        correctDate = new Date(weekStartDate);
+                        correctDate.setDate(weekStartDate.getDate() + 6);
+                    } else {
+                        correctDate = weekStartDate;
+                    }
+
+                    weeklyData[key] = {
+                        weekStart: weekKey,
+                        type: typeKey,
+                        correctDate: correctDate,
+                        studentIds: new Set()
+                    };
+                }
+
+                weeklyData[key].studentIds.add(record.studentId);
             });
-    
+
+            // Tạo danh sách ngày từ correct dates
+            const uniqueDates = Object.values(weeklyData)
+                .map(item => item.correctDate.toISOString().split('T')[0])
+                .sort();
+
+            // Map điểm danh theo studentId và correct date
+            const attendanceMap = {};
+            Object.values(weeklyData).forEach(weekData => {
+                const dateKey = weekData.correctDate.toISOString().split('T')[0];
+                weekData.studentIds.forEach(studentId => {
+                    attendanceMap[`${studentId}_${dateKey}`] = true;
+                });
+            });
+
             if (format === 'xlsx') {
                 const XLSX = require('xlsx');
-    
+
                 // Tạo header
                 const headers = ['STT', 'Tên Thánh', 'Họ và tên'];
                 uniqueDates.forEach(date => {
                     headers.push(new Date(date).toLocaleDateString('vi-VN').replace(/\//g, ''));
                 });
-    
+
                 // Tạo data rows
                 const rows = [headers];
                 students.forEach((student, index) => {
@@ -663,33 +704,33 @@ const reportsController = {
                         student.saintName || '',
                         student.fullName
                     ];
-                    
+
                     uniqueDates.forEach(date => {
                         const key = `${student.id}_${date}`;
                         row.push(attendanceMap[key] ? 'X' : '');
                     });
-                    
+
                     rows.push(row);
                 });
-    
+
                 const worksheet = XLSX.utils.aoa_to_sheet(rows);
                 worksheet['!cols'] = [
-                    { wch: 5 },
-                    { wch: 12 },
-                    { wch: 25 },
-                    ...uniqueDates.map(() => ({ wch: 8 }))
+                    { wch: 5 },   // STT
+                    { wch: 12 },  // Tên Thánh
+                    { wch: 25 },  // Họ và tên
+                    ...uniqueDates.map(() => ({ wch: 8 })) // Các cột ngày
                 ];
-    
+
                 const workbook = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(workbook, worksheet, 'Điểm danh lớp');
-    
+
                 const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-    
+
                 res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
                 res.setHeader('Content-Disposition', 'attachment; filename="diem_danh_lop.xlsx"');
                 res.send(buffer);
             }
-    
+
         } catch (error) {
             console.error('Export attendance report error:', error);
             res.status(500).json({ error: 'Lỗi server' });

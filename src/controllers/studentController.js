@@ -1,6 +1,5 @@
-const { PrismaClient } = require('@prisma/client');
+const { prisma } = require('../../prisma/client');
 const ScoreService = require('../services/scoreService');
-const prisma = new PrismaClient();
 
 const studentController = {
     // Get all students (with filters by role) - Updated to include isActive filter

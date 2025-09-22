@@ -1,10 +1,7 @@
-const { PrismaClient } = require('@prisma/client');
+const { prisma } = require('../../prisma/client');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const XLSX = require('xlsx');
-const ClassService = require('../services/classService');
-
-const prisma = new PrismaClient();
 
 // Simple multer config
 const upload = multer({

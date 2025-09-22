@@ -1,10 +1,8 @@
-const { PrismaClient } = require('@prisma/client');
+const { prisma } = require('../../prisma/client');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const ScoreService = require('../services/scoreService');
 const { getWeekRange, getAttendanceTargetDate, formatWeekRange } = require('../utils/weekUtils');
-
-const prisma = new PrismaClient();
 
 // Multer config for Excel files
 const upload = multer({

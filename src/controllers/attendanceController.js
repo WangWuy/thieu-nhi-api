@@ -1,7 +1,6 @@
-const { PrismaClient } = require('@prisma/client');
+const { prisma } = require('../../prisma/client');
 const ScoreService = require('../services/scoreService');
-const { getWeekRange, getAttendanceTargetDate, formatWeekRange, isSameWeek } = require('../utils/weekUtils');
-const prisma = new PrismaClient();
+const { getWeekRange, getAttendanceTargetDate, formatWeekRange } = require('../utils/weekUtils');
 
 // Redis connection with proper error handling
 let redis = null;

@@ -1,8 +1,6 @@
-const { PrismaClient } = require('@prisma/client');
+const { prisma } = require('../../prisma/client');
 const multer = require('multer');
 const XLSX = require('xlsx');
-
-const prisma = new PrismaClient();
 
 // Simple multer config
 const upload = multer({

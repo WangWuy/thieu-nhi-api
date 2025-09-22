@@ -1,6 +1,5 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
-const { getWeekRange, formatWeekRange } = require('../utils/weekUtils');
+const { prisma } = require('../../prisma/client');
+const { getWeekRange } = require('../utils/weekUtils');
 
 const reportsController = {
     // Get attendance report data
@@ -24,14 +23,11 @@ const reportsController = {
                 };
             }
 
-            // Date filtering - mở rộng theo tuần
+            // Date filtering - theo đúng ngày user chọn
             if (startDate && endDate) {
-                const startWeek = getWeekRange(startDate);
-                const endWeek = getWeekRange(endDate);
-
                 whereClause.attendanceDate = {
-                    gte: startWeek.startDate,
-                    lte: endWeek.endDate
+                    gte: new Date(startDate),
+                    lte: new Date(endDate + 'T23:59:59.999Z')
                 };
             }
 
@@ -450,7 +446,7 @@ const reportsController = {
             // Nếu là attendance report, dùng simplified version
             if (type === 'attendance') {
                 req.query = { ...filters, format };
-                return this.exportSimpleAttendanceReport(req, res);
+                return reportsController.exportSimpleAttendanceReport(req, res);
             }
 
             let data = [];
@@ -600,126 +596,102 @@ const reportsController = {
         return { ranking };
     },
 
-    // Export simplified attendance report (chỉ mã thiếu nhi)
-    // Export simplified attendance report - theo tuần
+    // Export simplified attendance report
     async exportSimpleAttendanceReport(req, res) {
         try {
-            const { startDate, endDate, classId, departmentId, format = 'xlsx' } = req.query;
-            const { role, departmentId: userDepartmentId } = req.user;
-
-            let whereClause = {
-                isPresent: true
-            };
-
-            // Role-based filtering  
-            if (role === 'phan_doan_truong') {
-                whereClause.student = {
-                    class: { departmentId: userDepartmentId }
-                };
-            } else if (classId) {
-                whereClause.student = { classId: parseInt(classId) };
-            } else if (departmentId) {
-                whereClause.student = {
-                    class: { departmentId: parseInt(departmentId) }
-                };
+            const { startDate, endDate, classId, format = 'xlsx' } = req.query;
+    
+            if (!classId) {
+                return res.status(400).json({ error: 'Phải chọn lớp để tạo báo cáo' });
             }
-
-            // Date filtering - mở rộng theo tuần
-            if (startDate && endDate) {
-                const startWeek = getWeekRange(startDate);
-                const endWeek = getWeekRange(endDate);
-
-                whereClause.attendanceDate = {
-                    gte: startWeek.startDate,
-                    lte: endWeek.endDate
-                };
-            }
-
-            const attendanceData = await prisma.attendance.findMany({
-                where: whereClause,
+    
+            // Lấy tất cả học sinh trong lớp
+            const students = await prisma.student.findMany({
+                where: {
+                    classId: parseInt(classId),
+                    isActive: true
+                },
                 select: {
-                    attendanceDate: true,
-                    attendanceType: true,
-                    student: {
-                        select: {
-                            studentCode: true,
-                            fullName: true
-                        }
+                    id: true,
+                    saintName: true,
+                    fullName: true
+                },
+                orderBy: { fullName: 'asc' }
+            });
+    
+            // Lấy dữ liệu điểm danh
+            const attendanceData = await prisma.attendance.findMany({
+                where: {
+                    student: { classId: parseInt(classId) },
+                    isPresent: true,
+                    attendanceDate: {
+                        gte: new Date(startDate),
+                        lte: new Date(endDate + 'T23:59:59.999Z')
                     }
                 },
-                orderBy: [
-                    { attendanceDate: 'desc' },
-                    { student: { studentCode: 'asc' } }
-                ]
-            });
-
-            // Group by week
-            const groupedByWeek = {};
-            attendanceData.forEach(record => {
-                const { startDate: weekStart, endDate: weekEnd } = getWeekRange(record.attendanceDate);
-                const weekKey = weekStart.toISOString().split('T')[0];
-                const typeKey = record.attendanceType;
-                const key = `${weekKey}_${typeKey}`;
-
-                if (!groupedByWeek[key]) {
-                    groupedByWeek[key] = {
-                        weekStart: weekKey,
-                        weekEnd: weekEnd.toISOString().split('T')[0],
-                        type: typeKey,
-                        studentCodes: []
-                    };
+                select: {
+                    studentId: true,
+                    attendanceDate: true
                 }
-
-                groupedByWeek[key].studentCodes.push(record.student.studentCode);
             });
-
+    
+            // Tạo danh sách ngày và map điểm danh
+            const uniqueDates = [...new Set(attendanceData.map(a => 
+                a.attendanceDate.toISOString().split('T')[0]
+            ))].sort();
+    
+            const attendanceMap = {};
+            attendanceData.forEach(record => {
+                const dateKey = record.attendanceDate.toISOString().split('T')[0];
+                attendanceMap[`${record.studentId}_${dateKey}`] = true;
+            });
+    
             if (format === 'xlsx') {
                 const XLSX = require('xlsx');
-
-                const excelData = Object.values(groupedByWeek)
-                    .sort((a, b) => new Date(b.weekStart) - new Date(a.weekStart))
-                    .map(group => ({
-                        'Tuần': `${new Date(group.weekStart).toLocaleDateString('vi-VN')} - ${new Date(group.weekEnd).toLocaleDateString('vi-VN')}`,
-                        'Loại điểm danh': group.type === 'thursday' ? 'Thứ 5' : 'Chủ nhật',
-                        'Số lượng': group.studentCodes.length,
-                        'Mã thiếu nhi có mặt': group.studentCodes.join('; ')
-                    }));
-
-                const workbook = XLSX.utils.book_new();
-                const worksheet = XLSX.utils.json_to_sheet(excelData);
-
-                worksheet['!cols'] = [
-                    { wch: 25 }, // Tuần
-                    { wch: 15 }, // Loại điểm danh  
-                    { wch: 10 }, // Số lượng
-                    { wch: 60 }  // Mã thiếu nhi
-                ];
-
-                XLSX.utils.book_append_sheet(workbook, worksheet, 'Điểm danh theo tuần');
-
-                const filename = `diem_danh_tuan_${startDate || 'all'}_${endDate || 'all'}.xlsx`;
-                const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-
-                res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-                res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-                res.send(buffer);
-            } else {
-                res.json({
-                    attendanceByWeek: groupedByWeek,
-                    summary: {
-                        totalWeeks: Object.keys(groupedByWeek).length,
-                        totalAttendances: attendanceData.length,
-                        dateRange: { startDate, endDate }
-                    },
-                    metadata: {
-                        generatedAt: new Date().toISOString(),
-                        filters: { startDate, endDate, classId, departmentId }
-                    }
+    
+                // Tạo header
+                const headers = ['STT', 'Tên Thánh', 'Họ và tên'];
+                uniqueDates.forEach(date => {
+                    headers.push(new Date(date).toLocaleDateString('vi-VN').replace(/\//g, ''));
                 });
+    
+                // Tạo data rows
+                const rows = [headers];
+                students.forEach((student, index) => {
+                    const row = [
+                        index + 1,
+                        student.saintName || '',
+                        student.fullName
+                    ];
+                    
+                    uniqueDates.forEach(date => {
+                        const key = `${student.id}_${date}`;
+                        row.push(attendanceMap[key] ? 'X' : '');
+                    });
+                    
+                    rows.push(row);
+                });
+    
+                const worksheet = XLSX.utils.aoa_to_sheet(rows);
+                worksheet['!cols'] = [
+                    { wch: 5 },
+                    { wch: 12 },
+                    { wch: 25 },
+                    ...uniqueDates.map(() => ({ wch: 8 }))
+                ];
+    
+                const workbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(workbook, worksheet, 'Điểm danh lớp');
+    
+                const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    
+                res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+                res.setHeader('Content-Disposition', 'attachment; filename="diem_danh_lop.xlsx"');
+                res.send(buffer);
             }
-
+    
         } catch (error) {
-            console.error('Export simple attendance report error:', error);
+            console.error('Export attendance report error:', error);
             res.status(500).json({ error: 'Lỗi server' });
         }
     },

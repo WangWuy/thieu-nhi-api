@@ -95,6 +95,7 @@ model Student {
   parentPhone1     String?  @map("parent_phone_1")
   parentPhone2     String?  @map("parent_phone_2")
   address          String?
+  note             String?
   classId          Int      @map("class_id")
   academicYearId   Int?     @map("academic_year_id")
   

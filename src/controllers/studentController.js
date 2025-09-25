@@ -1,5 +1,6 @@
 const { prisma } = require('../../prisma/client');
 const ScoreService = require('../services/scoreService');
+const { sortStudentsByLastName } = require('../utils/sortUtils');
 
 const studentController = {
     // Get all students (with filters by role) - Updated to include isActive filter
@@ -12,12 +13,12 @@ const studentController = {
                 search,
                 classFilter,
                 academicYearId,
-                isActive // ✅ THÊM FILTER IS_ACTIVE
+                isActive
             } = req.query;
 
             let whereClause = {};
 
-            // ✅ Apply isActive filter (dynamic)
+            // Apply isActive filter
             if (isActive !== undefined) {
                 whereClause.isActive = isActive === 'true' || isActive === true;
             }
@@ -46,7 +47,7 @@ const studentController = {
                 whereClause.academicYearId = parseInt(academicYearId);
             }
 
-            // Lấy tất cả trước (theo filter)
+            // Lấy tất cả students
             const allStudents = await prisma.student.findMany({
                 where: whereClause,
                 include: {
@@ -66,28 +67,13 @@ const studentController = {
                 }
             });
 
-            // Helper: lấy "tên" (token cuối)
-            function getGivenName(fullName = '') {
-                const parts = fullName.trim().split(/\s+/);
-                return parts.length ? parts[parts.length - 1] : '';
-            }
-
-            // Sort theo tên (tiếng Việt, ignore dấu)
-            allStudents.sort((a, b) => {
-                const na = getGivenName(a.fullName).toLowerCase();
-                const nb = getGivenName(b.fullName).toLowerCase();
-
-                const cmp = na.localeCompare(nb, 'vi', { sensitivity: 'base' });
-                if (cmp !== 0) return cmp;
-
-                // Nếu trùng tên thì fallback so sánh cả họ tên
-                return a.fullName.localeCompare(b.fullName, 'vi', { sensitivity: 'base' });
-            });
+            // Sort theo tên (chữ cuối) bằng utility function
+            const sortedStudents = sortStudentsByLastName(allStudents);
 
             // Pagination in-memory
             const skip = (page - 1) * limit;
-            const students = allStudents.slice(skip, skip + parseInt(limit));
-            const total = allStudents.length;
+            const students = sortedStudents.slice(skip, skip + parseInt(limit));
+            const total = sortedStudents.length;
 
             res.json({
                 students,
@@ -557,7 +543,7 @@ const studentController = {
             console.error('Bulk update scores error:', error);
             res.status(500).json({ error: 'Lỗi server' });
         }
-    }
+    },
 };
 
 module.exports = studentController;

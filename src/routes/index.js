@@ -120,8 +120,6 @@ router.get('/teachers',
     userController.getTeachers
 );
 
-
-
 // ==================== DEPARTMENT ROUTES ====================
 router.get('/departments',
     apiLimiter,
@@ -233,15 +231,6 @@ router.get('/classes/:classId/students',
 
 
 // ==================== ATTENDANCE ROUTES ====================
-// // LEGACY: Single attendance (not used)
-// router.post('/attendance',
-//     attendanceLimiter,
-//     verifyToken,
-//     requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-//     attendanceValidation.mark,
-//     attendanceController.markAttendance
-// );
-
 router.get('/classes/:classId/attendance',
     apiLimiter,
     verifyToken,
@@ -255,15 +244,6 @@ router.get('/attendance/stats',
     queryValidation.dateRange,
     attendanceController.getAttendanceStats
 );
-
-// // LEGACY: Batch attendance (not used)  
-// router.post('/classes/:classId/attendance/batch',
-//     attendanceLimiter, // Batch operations cần limit chặt
-//     verifyToken,
-//     requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-//     attendanceValidation.batchMark,
-//     attendanceController.batchMarkAttendance
-// );
 
 router.get('/attendance/trend',
     apiLimiter,
@@ -364,18 +344,6 @@ router.post('/import/users',
     requireRole(['ban_dieu_hanh']),
     importUserController.uploadExcel,
     importUserController.importUsers
-);
-
-router.post('/import/validate',
-    apiLimiter,
-    verifyToken,
-    // importController.validateImportData
-);
-
-router.get('/import/stats',
-    apiLimiter,
-    verifyToken,
-    // importController.getImportStats
 );
 
 // ==================== ACADEMIC YEAR ROUTES ====================
@@ -525,55 +493,5 @@ router.get('/reports/export',
     requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
     reportsController.exportReport
 );
-
-// ==================== TEST & HEALTH ROUTES ====================
-router.get('/test', (req, res) => {
-    res.json({
-        message: 'API routes working!',
-        version: '1.0.0',
-        features: [
-            '✅ Input Validation (express-validator)',
-            '✅ Rate Limiting (express-rate-limit)',
-            '✅ Security Headers (helmet)',
-            '✅ Error Handling',
-            '✅ Request Logging'
-        ],
-        endpoints: {
-            auth: [
-                'POST /api/auth/login',
-                'GET /api/auth/me',
-                'POST /api/auth/change-password'
-            ],
-            users: [
-                'GET /api/users',
-                'POST /api/users',
-                'PUT /api/users/:id',
-                'GET /api/teachers'
-            ],
-            classes: [
-                'GET /api/classes',
-                'POST /api/classes',
-                'GET /api/classes/:id'
-            ],
-            students: [
-                'GET /api/students',
-                'POST /api/students',
-                'GET /api/classes/:classId/students'
-            ],
-            attendance: [
-                'POST /api/attendance',
-                'GET /api/classes/:classId/attendance',
-                'POST /api/classes/:classId/attendance/batch'
-            ]
-        },
-        rateLimits: {
-            general: '1000 requests per 15 minutes',
-            auth: '5 failed attempts per 15 minutes',
-            api: '100 requests per minute',
-            strict: '10 requests per hour',
-            attendance: '50 requests per 5 minutes'
-        }
-    });
-});
 
 module.exports = router;

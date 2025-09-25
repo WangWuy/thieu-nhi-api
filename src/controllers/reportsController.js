@@ -1,5 +1,6 @@
 const { prisma } = require('../../prisma/client');
 const { getWeekRange, getAttendanceTargetDate } = require('../utils/weekUtils');
+const { sortStudentsByLastName } = require('../utils/sortUtils');
 
 const reportsController = {
     // Get attendance report data
@@ -599,7 +600,7 @@ const reportsController = {
     // Export simplified attendance report
     async exportSimpleAttendanceReport(req, res) {
         try {
-            const { startDate, endDate, classId, format = 'xlsx' } = req.query;
+            const { startDate, endDate, classId, attendanceType, format = 'xlsx' } = req.query;
 
             if (!classId) {
                 return res.status(400).json({ error: 'Phải chọn lớp để tạo báo cáo' });
@@ -615,9 +616,25 @@ const reportsController = {
                     id: true,
                     saintName: true,
                     fullName: true
-                },
-                orderBy: { fullName: 'asc' }
+                }
             });
+
+            const sortedStudents = sortStudentsByLastName(students);
+
+            // Tạo whereClause với filter attendanceType
+            let whereClause = {
+                student: { classId: parseInt(classId) },
+                isPresent: true,
+                attendanceDate: {
+                    gte: new Date(startDate),
+                    lte: new Date(endDate + 'T23:59:59.999Z')
+                }
+            };
+
+            // Filter theo loại điểm danh nếu có
+            if (attendanceType && attendanceType !== 'all') {
+                whereClause.attendanceType = attendanceType;
+            }
 
             // Lấy dữ liệu điểm danh trong khoảng thời gian
             const attendanceData = await prisma.attendance.findMany({
@@ -698,7 +715,7 @@ const reportsController = {
 
                 // Tạo data rows
                 const rows = [headers];
-                students.forEach((student, index) => {
+                sortedStudents.forEach((student, index) => {
                     const row = [
                         index + 1,
                         student.saintName || '',

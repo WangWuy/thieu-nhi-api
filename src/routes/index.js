@@ -327,6 +327,18 @@ router.get('/dashboard/quick-counts',
     dashboardController.getQuickCounts
 );
 
+router.get('/dashboard/weekly-attendance-trend',
+    apiLimiter,
+    verifyToken,
+    dashboardController.getWeeklyAttendanceTrend
+);
+
+router.get('/dashboard/department-classes-attendance',
+    apiLimiter,
+    verifyToken,
+    dashboardController.getDepartmentClassesAttendance
+);
+
 // ==================== IMPORT/EXPORT ROUTES ====================
 // Import students (supports both Excel file and JSON)
 router.post('/import/students',

@@ -6,7 +6,7 @@ const reportsController = {
     // Get attendance report data
     async getAttendanceReport(req, res) {
         try {
-            const { startDate, endDate, classId, departmentId } = req.query;
+            const { startDate, endDate, classId, departmentId, attendanceType } = req.query;
             const { role, departmentId: userDepartmentId } = req.user;
 
             let whereClause = {};
@@ -30,6 +30,10 @@ const reportsController = {
                     gte: new Date(startDate),
                     lte: new Date(endDate + 'T23:59:59.999Z')
                 };
+            }
+
+            if (attendanceType && attendanceType !== 'all') {
+                whereClause.attendanceType = attendanceType;
             }
 
             // Get attendance data with student and class info
@@ -439,79 +443,6 @@ const reportsController = {
         }
     },
 
-    // Export report data
-    async exportReport(req, res) {
-        try {
-            const { type, format = 'xlsx', ...filters } = req.query;
-
-            // Nếu là attendance report, dùng simplified version
-            if (type === 'attendance') {
-                req.query = { ...filters, format };
-                return reportsController.exportSimpleAttendanceReport(req, res);
-            }
-
-            let data = [];
-            let filename = `report_${type}_${new Date().toISOString().split('T')[0]}`;
-
-            switch (type) {
-                case 'ranking':
-                    req.query = { ...filters, limit: 1000 };
-                    const rankingResult = await this.getStudentRankingData(req);
-                    data = rankingResult.ranking.map(student => ({
-                        'Xếp hạng': student.rank,
-                        'Mã TN': student.studentCode,
-                        'Họ tên': student.fullName,
-                        'Lớp': student.class.name,
-                        'Ngành': student.class.department.displayName,
-                        'Điểm điểm danh': student.attendanceAverage,
-                        'Điểm học tập': student.studyAverage,
-                        'Điểm tổng': student.finalAverage
-                    }));
-                    break;
-
-                default:
-                    return res.status(400).json({ error: 'Loại báo cáo không hợp lệ' });
-            }
-
-            if (format === 'xlsx') {
-                const XLSX = require('xlsx');
-
-                // Tạo workbook và worksheet
-                const workbook = XLSX.utils.book_new();
-                const worksheet = XLSX.utils.json_to_sheet(data);
-
-                // Set column widths based on content
-                const colWidths = Object.keys(data[0] || {}).map(key => ({ wch: 15 }));
-                worksheet['!cols'] = colWidths;
-
-                // Add worksheet to workbook
-                XLSX.utils.book_append_sheet(workbook, worksheet, 'Báo cáo');
-
-                // Generate buffer
-                const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-
-                // Set headers and send file
-                res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-                res.setHeader('Content-Disposition', `attachment; filename="${filename}.xlsx"`);
-                res.send(buffer);
-            } else {
-                res.json({
-                    data,
-                    metadata: {
-                        type,
-                        generatedAt: new Date().toISOString(),
-                        totalRecords: data.length,
-                        filters
-                    }
-                });
-            }
-
-        } catch (error) {
-            console.error('Export report error:', error);
-            res.status(500).json({ error: 'Lỗi server' });
-        }
-    },
-
     // Helper methods for export
     async getAttendanceReportData(req) {
         // This is a simplified version of getAttendanceReport for internal use
@@ -595,163 +526,6 @@ const reportsController = {
         }));
 
         return { ranking };
-    },
-
-    // Export simplified attendance report
-    async exportSimpleAttendanceReport(req, res) {
-        try {
-            const { startDate, endDate, classId, attendanceType, format = 'xlsx' } = req.query;
-
-            if (!classId) {
-                return res.status(400).json({ error: 'Phải chọn lớp để tạo báo cáo' });
-            }
-
-            // Lấy tất cả học sinh trong lớp
-            const students = await prisma.student.findMany({
-                where: {
-                    classId: parseInt(classId),
-                    isActive: true
-                },
-                select: {
-                    id: true,
-                    saintName: true,
-                    fullName: true
-                }
-            });
-
-            const sortedStudents = sortStudentsByLastName(students);
-
-            // Tạo whereClause với filter attendanceType
-            let whereClause = {
-                student: { classId: parseInt(classId) },
-                isPresent: true,
-                attendanceDate: {
-                    gte: new Date(startDate),
-                    lte: new Date(endDate + 'T23:59:59.999Z')
-                }
-            };
-
-            // Filter theo loại điểm danh nếu có
-            if (attendanceType && attendanceType !== 'all') {
-                whereClause.attendanceType = attendanceType;
-            }
-
-            // Lấy dữ liệu điểm danh trong khoảng thời gian
-            const attendanceData = await prisma.attendance.findMany({
-                where: {
-                    student: { classId: parseInt(classId) },
-                    isPresent: true,
-                    attendanceDate: {
-                        gte: new Date(startDate),
-                        lte: new Date(endDate + 'T23:59:59.999Z')
-                    }
-                },
-                select: {
-                    studentId: true,
-                    attendanceDate: true,
-                    attendanceType: true
-                }
-            });
-
-            // Group by week và attendance type, với ngày chính xác
-            const weeklyData = {};
-            attendanceData.forEach(record => {
-                const { startDate: weekStart } = getWeekRange(record.attendanceDate);
-                const weekKey = weekStart.toISOString().split('T')[0];
-                const typeKey = record.attendanceType;
-                const key = `${weekKey}_${typeKey}`;
-
-                // Sửa phần này trong exportSimpleAttendanceReport
-                if (!weeklyData[key]) {
-                    // Tính ngày chính xác của loại điểm danh trong tuần
-                    const weekStartDate = new Date(weekStart); // weekStart đã là string YYYY-MM-DD
-                    let correctDate;
-
-                    if (typeKey === 'thursday') {
-                        // Thứ 5 = ngày thứ 4 của tuần (0=CN, 1=T2, ..., 4=T5)
-                        correctDate = new Date(weekStartDate);
-                        correctDate.setDate(weekStartDate.getDate() + 4);
-                    } else if (typeKey === 'sunday') {
-                        // Chủ nhật = ngày thứ 6 của tuần (tuần bắt đầu từ T2)
-                        correctDate = new Date(weekStartDate);
-                        correctDate.setDate(weekStartDate.getDate() + 6);
-                    } else {
-                        correctDate = weekStartDate;
-                    }
-
-                    weeklyData[key] = {
-                        weekStart: weekKey,
-                        type: typeKey,
-                        correctDate: correctDate,
-                        studentIds: new Set()
-                    };
-                }
-
-                weeklyData[key].studentIds.add(record.studentId);
-            });
-
-            // Tạo danh sách ngày từ correct dates
-            const uniqueDates = Object.values(weeklyData)
-                .map(item => item.correctDate.toISOString().split('T')[0])
-                .sort();
-
-            // Map điểm danh theo studentId và correct date
-            const attendanceMap = {};
-            Object.values(weeklyData).forEach(weekData => {
-                const dateKey = weekData.correctDate.toISOString().split('T')[0];
-                weekData.studentIds.forEach(studentId => {
-                    attendanceMap[`${studentId}_${dateKey}`] = true;
-                });
-            });
-
-            if (format === 'xlsx') {
-                const XLSX = require('xlsx');
-
-                // Tạo header
-                const headers = ['STT', 'Tên Thánh', 'Họ và tên'];
-                uniqueDates.forEach(date => {
-                    headers.push(new Date(date).toLocaleDateString('vi-VN').replace(/\//g, ''));
-                });
-
-                // Tạo data rows
-                const rows = [headers];
-                sortedStudents.forEach((student, index) => {
-                    const row = [
-                        index + 1,
-                        student.saintName || '',
-                        student.fullName
-                    ];
-
-                    uniqueDates.forEach(date => {
-                        const key = `${student.id}_${date}`;
-                        row.push(attendanceMap[key] ? 'X' : '');
-                    });
-
-                    rows.push(row);
-                });
-
-                const worksheet = XLSX.utils.aoa_to_sheet(rows);
-                worksheet['!cols'] = [
-                    { wch: 5 },   // STT
-                    { wch: 12 },  // Tên Thánh
-                    { wch: 25 },  // Họ và tên
-                    ...uniqueDates.map(() => ({ wch: 8 })) // Các cột ngày
-                ];
-
-                const workbook = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(workbook, worksheet, 'Điểm danh lớp');
-
-                const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-
-                res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-                res.setHeader('Content-Disposition', 'attachment; filename="diem_danh_lop.xlsx"');
-                res.send(buffer);
-            }
-
-        } catch (error) {
-            console.error('Export attendance report error:', error);
-            res.status(500).json({ error: 'Lỗi server' });
-        }
     },
 };
 

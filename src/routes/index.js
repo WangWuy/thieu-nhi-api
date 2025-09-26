@@ -38,6 +38,13 @@ const {
 
 const router = express.Router();
 
+router.post('/classes/:classId/fix-scores',
+    strictLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
+    studentController.fixClassScores
+);
+
 // ==================== AUTH ROUTES ====================
 router.post('/auth/login',
     authLimiter,
@@ -497,13 +504,6 @@ router.get('/reports/overview',
     verifyToken,
     requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
     reportsController.getOverviewReport
-);
-
-router.get('/reports/export',
-    strictLimiter, // Export operations should be limited
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    reportsController.exportReport
 );
 
 module.exports = router;

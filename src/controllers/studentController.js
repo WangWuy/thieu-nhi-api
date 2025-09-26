@@ -1,6 +1,7 @@
 const { prisma } = require('../../prisma/client');
 const ScoreService = require('../services/scoreService');
 const { sortStudentsByLastName } = require('../utils/sortUtils');
+const checkUtils = require('../utils/checkUtils');
 
 const studentController = {
     // Get all students (with filters by role) - Updated to include isActive filter
@@ -544,6 +545,17 @@ const studentController = {
             res.status(500).json({ error: 'Lỗi server' });
         }
     },
+
+    async fixClassScores(req, res) {
+        try {
+            const { classId } = req.params;
+            const result = await checkUtils.fixClassScores(classId);
+            res.json(result);
+        } catch (error) {
+            console.error('Fix class scores error:', error);
+            res.status(500).json({ error: 'Lỗi server' });
+        }
+    }
 };
 
 module.exports = studentController;

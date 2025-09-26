@@ -24,7 +24,7 @@ const reportsController = {
                 };
             }
 
-            // Date filtering - theo đúng ngày user chọn
+            // Date filtering
             if (startDate && endDate) {
                 whereClause.attendanceDate = {
                     gte: new Date(startDate),
@@ -49,26 +49,54 @@ const reportsController = {
                     }
                 },
                 orderBy: [
-                    { attendanceDate: 'desc' },
-                    { student: { fullName: 'asc' } }
+                    { attendanceDate: 'desc' }
                 ]
             });
 
-            // Group by weeks for better reporting
-            const weeklyData = {};
+            // Group data by student to apply sort
+            const studentsMap = new Map();
             attendanceData.forEach(record => {
-                const { startDate: weekStart } = getWeekRange(record.attendanceDate);
-                const weekKey = weekStart.toISOString().split('T')[0];
-
-                if (!weeklyData[weekKey]) {
-                    weeklyData[weekKey] = {
-                        weekStart: weekKey,
-                        weekEnd: new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                        records: []
-                    };
+                if (!studentsMap.has(record.student.id)) {
+                    studentsMap.set(record.student.id, record.student);
                 }
+            });
 
-                weeklyData[weekKey].records.push(record);
+            // Sort students using Vietnamese last name utility
+            const sortedStudents = sortStudentsByLastName(Array.from(studentsMap.values()));
+
+            // Create lookup for sorted order
+            const studentOrderMap = new Map();
+            sortedStudents.forEach((student, index) => {
+                studentOrderMap.set(student.id, index);
+            });
+
+            // Sort attendance data by student name order, then by date
+            const sortedAttendanceData = attendanceData.sort((a, b) => {
+                const orderA = studentOrderMap.get(a.student.id) || 0;
+                const orderB = studentOrderMap.get(b.student.id) || 0;
+                
+                if (orderA !== orderB) {
+                    return orderA - orderB;
+                }
+                
+                // Same student, sort by date desc
+                return new Date(b.attendanceDate) - new Date(a.attendanceDate);
+            });
+
+            // Group by date for summary
+            const attendanceByDate = {};
+            sortedAttendanceData.forEach(record => {
+                if (record.isPresent) {
+                    const dateKey = record.attendanceDate.toISOString().split('T')[0];
+                    if (!attendanceByDate[dateKey]) {
+                        attendanceByDate[dateKey] = {
+                            date: dateKey,
+                            type: record.attendanceType,
+                            studentCodes: []
+                        };
+                    }
+                    attendanceByDate[dateKey].studentCodes.push(record.student.studentCode);
+                }
             });
 
             // Get summary stats
@@ -91,11 +119,11 @@ const reportsController = {
             };
 
             res.json({
-                attendanceData,
-                weeklyData: Object.values(weeklyData),
+                attendanceData: sortedAttendanceData,
+                attendanceByDate,
                 summary,
                 filters: { startDate, endDate, classId, departmentId },
-                totalRecords: attendanceData.length
+                totalRecords: sortedAttendanceData.length
             });
 
         } catch (error) {
@@ -104,150 +132,10 @@ const reportsController = {
         }
     },
 
-    // Get grade distribution report
-    async getGradeDistribution(req, res) {
+    // Get student scores report (renamed from student ranking)
+    async getStudentScores(req, res) {
         try {
-            const { classId, departmentId, academicYearId } = req.query;
-            const { role, departmentId: userDepartmentId } = req.user;
-
-            let whereClause = { isActive: true };
-
-            // Role-based filtering
-            if (role === 'phan_doan_truong') {
-                whereClause.class = { departmentId: userDepartmentId };
-            } else if (classId) {
-                whereClause.classId = parseInt(classId);
-            } else if (departmentId) {
-                whereClause.class = { departmentId: parseInt(departmentId) };
-            }
-
-            // Academic year filtering
-            if (academicYearId) {
-                whereClause.academicYearId = parseInt(academicYearId);
-            }
-
-            const students = await prisma.student.findMany({
-                where: whereClause,
-                include: {
-                    class: {
-                        include: { department: true }
-                    },
-                    academicYear: true
-                }
-            });
-
-            // Calculate grade distribution
-            const distribution = {
-                attendance: { excellent: 0, good: 0, average: 0, weak: 0 },
-                study: { excellent: 0, good: 0, average: 0, weak: 0 },
-                final: { excellent: 0, good: 0, average: 0, weak: 0 }
-            };
-
-            const departmentStats = {};
-            const classStats = {};
-
-            students.forEach(student => {
-                const attendanceScore = parseFloat(student.attendanceAverage) || 0;
-                const studyScore = parseFloat(student.studyAverage) || 0;
-                const finalScore = parseFloat(student.finalAverage) || 0;
-
-                // Attendance distribution
-                if (attendanceScore >= 8.5) distribution.attendance.excellent++;
-                else if (attendanceScore >= 7.0) distribution.attendance.good++;
-                else if (attendanceScore >= 5.5) distribution.attendance.average++;
-                else distribution.attendance.weak++;
-
-                // Study distribution
-                if (studyScore >= 8.5) distribution.study.excellent++;
-                else if (studyScore >= 7.0) distribution.study.good++;
-                else if (studyScore >= 5.5) distribution.study.average++;
-                else distribution.study.weak++;
-
-                // Final distribution
-                if (finalScore >= 8.5) distribution.final.excellent++;
-                else if (finalScore >= 7.0) distribution.final.good++;
-                else if (finalScore >= 5.5) distribution.final.average++;
-                else distribution.final.weak++;
-
-                // Department stats
-                const deptName = student.class.department.displayName;
-                if (!departmentStats[deptName]) {
-                    departmentStats[deptName] = {
-                        totalStudents: 0,
-                        averageAttendance: 0,
-                        averageStudy: 0,
-                        averageFinal: 0,
-                        attendanceSum: 0,
-                        studySum: 0,
-                        finalSum: 0
-                    };
-                }
-
-                departmentStats[deptName].totalStudents++;
-                departmentStats[deptName].attendanceSum += attendanceScore;
-                departmentStats[deptName].studySum += studyScore;
-                departmentStats[deptName].finalSum += finalScore;
-
-                // Class stats
-                const className = student.class.name;
-                if (!classStats[className]) {
-                    classStats[className] = {
-                        totalStudents: 0,
-                        averageAttendance: 0,
-                        averageStudy: 0,
-                        averageFinal: 0,
-                        attendanceSum: 0,
-                        studySum: 0,
-                        finalSum: 0,
-                        department: deptName
-                    };
-                }
-
-                classStats[className].totalStudents++;
-                classStats[className].attendanceSum += attendanceScore;
-                classStats[className].studySum += studyScore;
-                classStats[className].finalSum += finalScore;
-            });
-
-            // Calculate averages
-            Object.keys(departmentStats).forEach(dept => {
-                const stat = departmentStats[dept];
-                stat.averageAttendance = (stat.attendanceSum / stat.totalStudents).toFixed(1);
-                stat.averageStudy = (stat.studySum / stat.totalStudents).toFixed(1);
-                stat.averageFinal = (stat.finalSum / stat.totalStudents).toFixed(1);
-                delete stat.attendanceSum;
-                delete stat.studySum;
-                delete stat.finalSum;
-            });
-
-            Object.keys(classStats).forEach(cls => {
-                const stat = classStats[cls];
-                stat.averageAttendance = (stat.attendanceSum / stat.totalStudents).toFixed(1);
-                stat.averageStudy = (stat.studySum / stat.totalStudents).toFixed(1);
-                stat.averageFinal = (stat.finalSum / stat.totalStudents).toFixed(1);
-                delete stat.attendanceSum;
-                delete stat.studySum;
-                delete stat.finalSum;
-            });
-
-            res.json({
-                distribution,
-                departmentStats,
-                classStats,
-                totalStudents: students.length,
-                filters: { classId, departmentId, academicYearId }
-            });
-
-        } catch (error) {
-            console.error('Get grade distribution error:', error);
-            res.status(500).json({ error: 'Lỗi server' });
-        }
-    },
-
-    // Get student ranking report
-    async getStudentRanking(req, res) {
-        try {
-            const { classId, departmentId, academicYearId, limit = 50 } = req.query;
+            const { classId, departmentId, academicYearId, limit = 100 } = req.query;
             const { role, departmentId: userDepartmentId } = req.user;
 
             let whereClause = { isActive: true };
@@ -274,258 +162,64 @@ const reportsController = {
                     },
                     academicYear: true
                 },
-                orderBy: [
-                    { finalAverage: 'desc' },
-                    { studyAverage: 'desc' },
-                    { attendanceAverage: 'desc' }
-                ],
                 take: parseInt(limit)
             });
 
-            // Add ranking
-            const rankedStudents = students.map((student, index) => ({
-                ...student,
-                rank: index + 1,
-                finalAverage: parseFloat(student.finalAverage),
-                studyAverage: parseFloat(student.studyAverage),
-                attendanceAverage: parseFloat(student.attendanceAverage)
-            }));
+            // Sort students by Vietnamese last name only
+            const sortedStudents = sortStudentsByLastName([...students]);
 
-            // Get top performers by category
-            const topAttendance = [...students]
-                .sort((a, b) => parseFloat(b.attendanceAverage) - parseFloat(a.attendanceAverage))
-                .slice(0, 10)
-                .map((student, index) => ({ ...student, rank: index + 1 }));
+            // Sort students by final score for ranking (highest first)
+            const studentsForRanking = [...students].sort((a, b) => {
+                const scoreA = parseFloat(a.finalAverage || 0);
+                const scoreB = parseFloat(b.finalAverage || 0);
+                return scoreB - scoreA; // Descending order
+            });
 
-            const topStudy = [...students]
-                .sort((a, b) => parseFloat(b.studyAverage) - parseFloat(a.studyAverage))
-                .slice(0, 10)
-                .map((student, index) => ({ ...student, rank: index + 1 }));
+            // Calculate ranks based on final scores
+            const studentsWithRanks = sortedStudents.map(student => {
+                const finalScore = parseFloat(student.finalAverage || 0);
+                
+                // Find rank by counting students with higher scores
+                const rank = studentsForRanking.findIndex(s => s.id === student.id) + 1;
+                
+                return {
+                    ...student,
+                    finalAverage: parseFloat(student.finalAverage || 0),
+                    studyAverage: parseFloat(student.studyAverage || 0),
+                    attendanceAverage: parseFloat(student.attendanceAverage || 0),
+                    midtermAverage: parseFloat(student.midtermAverage || 0),
+                    hk1_45min: parseFloat(student.hk1_45min || 0),
+                    hk1_exam: parseFloat(student.hk1_exam || 0),
+                    hk2_45min: parseFloat(student.hk2_45min || 0),
+                    hk2_exam: parseFloat(student.hk2_exam || 0),
+                    calculatedRank: rank
+                };
+            });
 
-            // Calculate percentiles
+            // Calculate statistics
             const totalStudentsInScope = await prisma.student.count({ where: whereClause });
 
             res.json({
-                ranking: rankedStudents,
-                topPerformers: {
-                    overall: rankedStudents.slice(0, 10),
-                    attendance: topAttendance,
-                    study: topStudy
-                },
+                ranking: studentsWithRanks,
                 statistics: {
                     totalStudents: totalStudentsInScope,
-                    averageFinalScore: rankedStudents.length > 0
-                        ? (rankedStudents.reduce((sum, s) => sum + s.finalAverage, 0) / rankedStudents.length).toFixed(1)
+                    averageFinalScore: studentsWithRanks.length > 0
+                        ? (studentsWithRanks.reduce((sum, s) => sum + s.finalAverage, 0) / studentsWithRanks.length).toFixed(1)
                         : 0,
-                    averageStudyScore: rankedStudents.length > 0
-                        ? (rankedStudents.reduce((sum, s) => sum + s.studyAverage, 0) / rankedStudents.length).toFixed(1)
+                    averageStudyScore: studentsWithRanks.length > 0
+                        ? (studentsWithRanks.reduce((sum, s) => sum + s.studyAverage, 0) / studentsWithRanks.length).toFixed(1)
                         : 0,
-                    averageAttendanceScore: rankedStudents.length > 0
-                        ? (rankedStudents.reduce((sum, s) => sum + s.attendanceAverage, 0) / rankedStudents.length).toFixed(1)
+                    averageAttendanceScore: studentsWithRanks.length > 0
+                        ? (studentsWithRanks.reduce((sum, s) => sum + s.attendanceAverage, 0) / studentsWithRanks.length).toFixed(1)
                         : 0
                 },
                 filters: { classId, departmentId, academicYearId, limit }
             });
 
         } catch (error) {
-            console.error('Get student ranking error:', error);
+            console.error('Get student scores error:', error);
             res.status(500).json({ error: 'Lỗi server' });
         }
-    },
-
-    // Get overview report (dashboard for reports)
-    async getOverviewReport(req, res) {
-        try {
-            const { academicYearId } = req.query;
-            const { role, departmentId: userDepartmentId } = req.user;
-
-            let studentWhereClause = { isActive: true };
-            let attendanceWhereClause = {};
-
-            // Role-based filtering
-            if (role === 'phan_doan_truong') {
-                studentWhereClause.class = { departmentId: userDepartmentId };
-                attendanceWhereClause.student = {
-                    class: { departmentId: userDepartmentId }
-                };
-            }
-
-            // Academic year filtering
-            if (academicYearId) {
-                studentWhereClause.academicYearId = parseInt(academicYearId);
-            }
-
-            // Get basic counts
-            const [
-                totalStudents,
-                totalClasses,
-                totalDepartments,
-                attendanceStats,
-                students
-            ] = await Promise.all([
-                prisma.student.count({ where: studentWhereClause }),
-
-                prisma.class.count({
-                    where: {
-                        isActive: true,
-                        ...(role === 'phan_doan_truong' ? { departmentId: userDepartmentId } : {})
-                    }
-                }),
-
-                prisma.department.count({
-                    where: {
-                        isActive: true,
-                        ...(role === 'phan_doan_truong' ? { id: userDepartmentId } : {})
-                    }
-                }),
-
-                prisma.attendance.groupBy({
-                    by: ['attendanceType', 'isPresent'],
-                    where: {
-                        ...attendanceWhereClause,
-                        attendanceDate: {
-                            gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) // Last 30 days
-                        }
-                    },
-                    _count: { id: true }
-                }),
-
-                prisma.student.findMany({
-                    where: studentWhereClause,
-                    select: {
-                        attendanceAverage: true,
-                        studyAverage: true,
-                        finalAverage: true
-                    }
-                })
-            ]);
-
-            // Calculate score averages
-            const scoreAverages = {
-                attendance: students.length > 0
-                    ? (students.reduce((sum, s) => sum + parseFloat(s.attendanceAverage), 0) / students.length).toFixed(1)
-                    : 0,
-                study: students.length > 0
-                    ? (students.reduce((sum, s) => sum + parseFloat(s.studyAverage), 0) / students.length).toFixed(1)
-                    : 0,
-                final: students.length > 0
-                    ? (students.reduce((sum, s) => sum + parseFloat(s.finalAverage), 0) / students.length).toFixed(1)
-                    : 0
-            };
-
-            // Format attendance stats
-            const recentAttendance = {
-                thursday: {
-                    present: attendanceStats.find(s => s.attendanceType === 'thursday' && s.isPresent)?._count.id || 0,
-                    absent: attendanceStats.find(s => s.attendanceType === 'thursday' && !s.isPresent)?._count.id || 0
-                },
-                sunday: {
-                    present: attendanceStats.find(s => s.attendanceType === 'sunday' && s.isPresent)?._count.id || 0,
-                    absent: attendanceStats.find(s => s.attendanceType === 'sunday' && !s.isPresent)?._count.id || 0
-                }
-            };
-
-            res.json({
-                summary: {
-                    totalStudents,
-                    totalClasses,
-                    totalDepartments,
-                    scoreAverages
-                },
-                recentAttendance,
-                lastUpdated: new Date().toISOString(),
-                filters: { academicYearId }
-            });
-
-        } catch (error) {
-            console.error('Get overview report error:', error);
-            res.status(500).json({ error: 'Lỗi server' });
-        }
-    },
-
-    // Helper methods for export
-    async getAttendanceReportData(req) {
-        // This is a simplified version of getAttendanceReport for internal use
-        const { startDate, endDate, classId, departmentId } = req.query;
-        const { role, departmentId: userDepartmentId } = req.user;
-
-        let whereClause = {};
-
-        if (role === 'phan_doan_truong') {
-            whereClause.student = { class: { departmentId: userDepartmentId } };
-        } else if (classId) {
-            whereClause.student = { classId: parseInt(classId) };
-        } else if (departmentId) {
-            whereClause.student = { class: { departmentId: parseInt(departmentId) } };
-        }
-
-        if (startDate && endDate) {
-            whereClause.attendanceDate = {
-                gte: new Date(startDate),
-                lte: new Date(endDate)
-            };
-        }
-
-        const attendanceData = await prisma.attendance.findMany({
-            where: whereClause,
-            include: {
-                student: {
-                    include: {
-                        class: { include: { department: true } }
-                    }
-                }
-            },
-            orderBy: [
-                { attendanceDate: 'desc' },
-                { student: { fullName: 'asc' } }
-            ]
-        });
-
-        return { attendanceData };
-    },
-
-    async getStudentRankingData(req) {
-        // This is a simplified version of getStudentRanking for internal use
-        const { classId, departmentId, academicYearId, limit = 1000 } = req.query;
-        const { role, departmentId: userDepartmentId } = req.user;
-
-        let whereClause = { isActive: true };
-
-        if (role === 'phan_doan_truong') {
-            whereClause.class = { departmentId: userDepartmentId };
-        } else if (classId) {
-            whereClause.classId = parseInt(classId);
-        } else if (departmentId) {
-            whereClause.class = { departmentId: parseInt(departmentId) };
-        }
-
-        if (academicYearId) {
-            whereClause.academicYearId = parseInt(academicYearId);
-        }
-
-        const students = await prisma.student.findMany({
-            where: whereClause,
-            include: {
-                class: { include: { department: true } },
-                academicYear: true
-            },
-            orderBy: [
-                { finalAverage: 'desc' },
-                { studyAverage: 'desc' },
-                { attendanceAverage: 'desc' }
-            ],
-            take: parseInt(limit)
-        });
-
-        const ranking = students.map((student, index) => ({
-            ...student,
-            rank: index + 1,
-            finalAverage: parseFloat(student.finalAverage),
-            studyAverage: parseFloat(student.studyAverage),
-            attendanceAverage: parseFloat(student.attendanceAverage)
-        }));
-
-        return { ranking };
     },
 };
 

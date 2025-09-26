@@ -485,25 +485,11 @@ router.get('/reports/attendance',
     reportsController.getAttendanceReport
 );
 
-router.get('/reports/grade-distribution',
+router.get('/reports/student-scores',
     apiLimiter,
     verifyToken,
     requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    reportsController.getGradeDistribution
-);
-
-router.get('/reports/student-ranking',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    reportsController.getStudentRanking
-);
-
-router.get('/reports/overview',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    reportsController.getOverviewReport
+    reportsController.getStudentScores
 );
 
 module.exports = router;

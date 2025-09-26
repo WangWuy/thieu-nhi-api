@@ -39,6 +39,7 @@ model Department {
   users       User[]
   classes     Class[]
   weeklyStats WeeklyStat[]
+  pendingUsers PendingUser[]
 
   @@map("departments")
 }
@@ -62,6 +63,7 @@ model User {
   department       Department? @relation(fields: [departmentId], references: [id])
   classTeachers    ClassTeacher[]
   attendanceMarked Attendance[] @relation("MarkedBy")
+  approvedUsers    PendingUser[] @relation("UserApprover")
 
   @@map("users")
 }
@@ -186,4 +188,36 @@ enum UserRole {
 enum AttendanceType {
   thursday
   sunday
+}
+
+model PendingUser {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  email        String?  @unique
+  passwordHash String   @map("password_hash")
+  role         UserRole
+  saintName    String?  @map("saint_name")
+  fullName     String   @map("full_name")
+  birthDate    DateTime? @map("birth_date")
+  phoneNumber  String?  @map("phone_number")
+  address      String?
+  departmentId Int?     @map("department_id")
+  status       PendingUserStatus @default(pending)
+  rejectionReason String? @map("rejection_reason")
+  approvedBy   Int?     @map("approved_by")
+  approvedAt   DateTime? @map("approved_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  department   Department? @relation(fields: [departmentId], references: [id])
+  approver     User?       @relation("UserApprover", fields: [approvedBy], references: [id])
+
+  @@map("pending_users")
+}
+
+enum PendingUserStatus {
+  pending
+  approved
+  rejected
 }

@@ -178,7 +178,7 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, '0.0.0.0',() => {
     console.log(`🚀 Server đang chạy tại http://localhost:${PORT}`);
     console.log(`📚 API docs: http://localhost:${PORT}/api/test`);
     console.log(`🛡️  Security: Helmet + Rate Limiting enabled`);

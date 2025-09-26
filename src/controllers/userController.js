@@ -285,14 +285,128 @@ const userController = {
         try {
             const { id } = req.params;
 
+            // Check if user exists
+            const user = await prisma.user.findUnique({
+                where: { id: parseInt(id) },
+                select: { id: true, fullName: true, isActive: true }
+            });
+
+            if (!user) {
+                return res.status(404).json({ error: 'Người dùng không tồn tại' });
+            }
+
+            if (!user.isActive) {
+                return res.status(400).json({ error: 'Tài khoản đã bị vô hiệu hóa' });
+            }
+
             await prisma.user.update({
                 where: { id: parseInt(id) },
                 data: { isActive: false }
             });
 
-            res.json({ message: 'Khóa tài khoản thành công' });
+            res.json({ 
+                message: 'Vô hiệu hóa tài khoản thành công',
+                user: {
+                    id: user.id,
+                    fullName: user.fullName,
+                    isActive: false
+                }
+            });
         } catch (error) {
             console.error('Deactivate user error:', error);
+            res.status(500).json({ error: 'Lỗi server' });
+        }
+    },
+
+    // Activate user (kích hoạt lại tài khoản)
+    async activateUser(req, res) {
+        try {
+            const { id } = req.params;
+
+            // Check if user exists
+            const user = await prisma.user.findUnique({
+                where: { id: parseInt(id) },
+                select: { id: true, fullName: true, isActive: true }
+            });
+
+            if (!user) {
+                return res.status(404).json({ error: 'Người dùng không tồn tại' });
+            }
+
+            if (user.isActive) {
+                return res.status(400).json({ error: 'Tài khoản đã được kích hoạt' });
+            }
+
+            await prisma.user.update({
+                where: { id: parseInt(id) },
+                data: { isActive: true }
+            });
+
+            res.json({ 
+                message: 'Kích hoạt tài khoản thành công',
+                user: {
+                    id: user.id,
+                    fullName: user.fullName,
+                    isActive: true
+                }
+            });
+        } catch (error) {
+            console.error('Activate user error:', error);
+            res.status(500).json({ error: 'Lỗi server' });
+        }
+    },
+
+    // Toggle user status (vô hiệu hóa/kích hoạt)
+    async toggleUserStatus(req, res) {
+        try {
+            const { id } = req.params;
+            const { action } = req.body; // 'activate' hoặc 'deactivate'
+
+            if (!action || !['activate', 'deactivate'].includes(action)) {
+                return res.status(400).json({ 
+                    error: 'Action không hợp lệ. Sử dụng "activate" hoặc "deactivate"' 
+                });
+            }
+
+            // Check if user exists
+            const user = await prisma.user.findUnique({
+                where: { id: parseInt(id) },
+                select: { id: true, fullName: true, isActive: true, role: true }
+            });
+
+            if (!user) {
+                return res.status(404).json({ error: 'Người dùng không tồn tại' });
+            }
+
+            const newStatus = action === 'activate';
+            
+            // Check if already in desired status
+            if (user.isActive === newStatus) {
+                const statusText = newStatus ? 'đã được kích hoạt' : 'đã bị vô hiệu hóa';
+                return res.status(400).json({ error: `Tài khoản ${statusText}` });
+            }
+
+            await prisma.user.update({
+                where: { id: parseInt(id) },
+                data: { isActive: newStatus }
+            });
+
+            const actionText = newStatus ? 'Kích hoạt' : 'Vô hiệu hóa';
+            const statusText = newStatus ? 'được kích hoạt' : 'bị vô hiệu hóa';
+
+            res.json({ 
+                message: `${actionText} tài khoản thành công`,
+                user: {
+                    id: user.id,
+                    fullName: user.fullName,
+                    role: user.role,
+                    isActive: newStatus
+                },
+                action: action,
+                previousStatus: user.isActive
+            });
+        } catch (error) {
+            console.error('Toggle user status error:', error);
             res.status(500).json({ error: 'Lỗi server' });
         }
     },

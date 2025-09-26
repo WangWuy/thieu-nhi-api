@@ -123,6 +123,101 @@ const userValidation = {
             .isLength({ min: 6 })
             .withMessage('Mật khẩu mới phải ít nhất 6 ký tự'),
         handleValidationErrors
+    ],
+
+    toggleStatus: [
+        param('id')
+            .isInt({ min: 1 })
+            .withMessage('User ID không hợp lệ'),
+        body('action')
+            .notEmpty()
+            .withMessage('Action là bắt buộc')
+            .isIn(['activate', 'deactivate'])
+            .withMessage('Action phải là "activate" hoặc "deactivate"'),
+        handleValidationErrors
+    ]
+};
+
+// Pending User validation rules
+const pendingUserValidation = {
+    register: [
+        body('username')
+            .notEmpty()
+            .withMessage('Username là bắt buộc')
+            .isLength({ min: 3, max: 50 })
+            .withMessage('Username phải từ 3-50 ký tự')
+            .matches(/^[a-zA-Z0-9_]+$/)
+            .withMessage('Username chỉ được chứa chữ, số và dấu gạch dưới'),
+        body('email')
+            .optional()
+            .isEmail()
+            .withMessage('Email không hợp lệ'),
+        body('password')
+            .isLength({ min: 6 })
+            .withMessage('Password phải ít nhất 6 ký tự'),
+        body('role')
+            .isIn(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien'])
+            .withMessage('Role không hợp lệ'),
+        body('fullName')
+            .notEmpty()
+            .withMessage('Họ tên là bắt buộc')
+            .isLength({ min: 2, max: 100 })
+            .withMessage('Họ tên phải từ 2-100 ký tự'),
+        body('saintName')
+            .optional()
+            .isLength({ max: 50 })
+            .withMessage('Tên thánh không được quá 50 ký tự'),
+        body('phoneNumber')
+            .optional()
+            .matches(/^(\+84|0)[3|5|7|8|9][0-9]{8}$/)
+            .withMessage('Số điện thoại không hợp lệ (VN format)'),
+        body('birthDate')
+            .optional()
+            .isISO8601()
+            .withMessage('Ngày sinh không hợp lệ')
+            .custom((value) => {
+                if (value) {
+                    const birthDate = new Date(value);
+                    const today = new Date();
+                    const age = today.getFullYear() - birthDate.getFullYear();
+                    if (age < 16 || age > 80) {
+                        throw new Error('Tuổi phải từ 16-80');
+                    }
+                }
+                return true;
+            }),
+        body('address')
+            .optional()
+            .isLength({ min: 10, max: 500 })
+            .withMessage('Địa chỉ phải từ 10-500 ký tự'),
+        body('departmentId')
+            .optional()
+            .isInt({ min: 1 })
+            .withMessage('Department ID không hợp lệ'),
+        handleValidationErrors
+    ],
+
+    approve: [
+        param('id')
+            .isInt({ min: 1 })
+            .withMessage('Pending User ID không hợp lệ'),
+        body('departmentId')
+            .optional()
+            .isInt({ min: 1 })
+            .withMessage('Department ID không hợp lệ'),
+        handleValidationErrors
+    ],
+
+    reject: [
+        param('id')
+            .isInt({ min: 1 })
+            .withMessage('Pending User ID không hợp lệ'),
+        body('rejectionReason')
+            .notEmpty()
+            .withMessage('Lý do từ chối là bắt buộc')
+            .isLength({ min: 10, max: 500 })
+            .withMessage('Lý do từ chối phải từ 10-500 ký tự'),
+        handleValidationErrors
     ]
 };
 
@@ -776,6 +871,7 @@ const scoreValidation = {
 module.exports = {
     authValidation,
     userValidation,
+    pendingUserValidation,
     studentValidation,
     classValidation,
     attendanceValidation,

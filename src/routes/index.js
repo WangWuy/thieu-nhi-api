@@ -12,6 +12,7 @@ const ScoreService = require('../services/scoreService');
 const reportsController = require('../controllers/reportsController');
 const importUserController = require('../controllers/importUserController');
 const importAttendanceController = require('../controllers/importAttendanceController');
+const pendingUserController = require('../controllers/pendingUserController');
 
 const { verifyToken, requireRole, requireAdmin } = require('../middleware/auth');
 
@@ -19,6 +20,7 @@ const { verifyToken, requireRole, requireAdmin } = require('../middleware/auth')
 const {
     authValidation,
     userValidation,
+    pendingUserValidation,
     studentValidation,
     classValidation,
     attendanceValidation,
@@ -111,6 +113,21 @@ router.put('/users/:id/deactivate',
     verifyToken,
     requireAdmin,
     userController.deactivateUser
+);
+
+router.put('/users/:id/activate',
+    strictLimiter,
+    verifyToken,
+    requireAdmin,
+    userController.activateUser
+);
+
+router.put('/users/:id/toggle-status',
+    strictLimiter,
+    verifyToken,
+    requireAdmin,
+    userValidation.toggleStatus,
+    userController.toggleUserStatus
 );
 
 router.put('/students/:id/restore',
@@ -490,6 +507,66 @@ router.get('/reports/student-scores',
     verifyToken,
     requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
     reportsController.getStudentScores
+);
+
+// ==================== PENDING USER ROUTES ====================
+// Đăng ký tài khoản từ mobile (public - không cần auth)
+router.post('/register',
+    createAccountLimiter,
+    pendingUserValidation.register,
+    pendingUserController.registerUser
+);
+
+// Lấy danh sách pending users (chỉ admin)
+router.get('/pending-users',
+    apiLimiter,
+    verifyToken,
+    requireAdmin,
+    queryValidation.pagination,
+    queryValidation.search,
+    pendingUserController.getPendingUsers
+);
+
+// Lấy chi tiết pending user (chỉ admin)
+router.get('/pending-users/:id',
+    apiLimiter,
+    verifyToken,
+    requireAdmin,
+    pendingUserController.getPendingUserById
+);
+
+// Phê duyệt đăng ký (chỉ admin)
+router.put('/pending-users/:id/approve',
+    strictLimiter,
+    verifyToken,
+    requireAdmin,
+    pendingUserValidation.approve,
+    pendingUserController.approveUser
+);
+
+// Từ chối đăng ký (chỉ admin)
+router.put('/pending-users/:id/reject',
+    strictLimiter,
+    verifyToken,
+    requireAdmin,
+    pendingUserValidation.reject,
+    pendingUserController.rejectUser
+);
+
+// Xóa pending user (chỉ admin)
+router.delete('/pending-users/:id',
+    strictLimiter,
+    verifyToken,
+    requireAdmin,
+    pendingUserController.deletePendingUser
+);
+
+// Thống kê pending users (chỉ admin)
+router.get('/pending-users/stats',
+    apiLimiter,
+    verifyToken,
+    requireAdmin,
+    pendingUserController.getPendingUserStats
 );
 
 module.exports = router;

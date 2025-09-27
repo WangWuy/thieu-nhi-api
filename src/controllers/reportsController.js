@@ -53,6 +53,25 @@ const reportsController = {
                 ]
             });
 
+            // Lấy tất cả students theo filter để có complete list
+            let studentWhereClause = { isActive: true };
+            if (role === 'phan_doan_truong') {
+                studentWhereClause.class = { departmentId: userDepartmentId };
+            } else if (classId) {
+                studentWhereClause.classId = parseInt(classId);
+            } else if (departmentId) {
+                studentWhereClause.class = { departmentId: parseInt(departmentId) };
+            }
+
+            const allStudents = await prisma.student.findMany({
+                where: studentWhereClause,
+                include: {
+                    class: {
+                        include: { department: true }
+                    }
+                }
+            });
+
             // Group data by student to apply sort
             const studentsMap = new Map();
             attendanceData.forEach(record => {
@@ -61,8 +80,23 @@ const reportsController = {
                 }
             });
 
+            // Tìm students chưa có attendance
+            const studentsWithoutAttendance = allStudents.filter(student =>
+                !studentsMap.has(student.id)
+            );
+
+            // Thêm students chưa có attendance vào map để sort
+            allStudents.forEach(student => {
+                if (!studentsMap.has(student.id)) {
+                    studentsMap.set(student.id, student);
+                }
+            });
+
             // Sort students using Vietnamese last name utility
             const sortedStudents = sortStudentsByLastName(Array.from(studentsMap.values()));
+
+            // Sort students chưa điểm danh
+            const sortedStudentsWithoutAttendance = sortStudentsByLastName(studentsWithoutAttendance);
 
             // Create lookup for sorted order
             const studentOrderMap = new Map();
@@ -74,11 +108,11 @@ const reportsController = {
             const sortedAttendanceData = attendanceData.sort((a, b) => {
                 const orderA = studentOrderMap.get(a.student.id) || 0;
                 const orderB = studentOrderMap.get(b.student.id) || 0;
-                
+
                 if (orderA !== orderB) {
                     return orderA - orderB;
                 }
-                
+
                 // Same student, sort by date desc
                 return new Date(b.attendanceDate) - new Date(a.attendanceDate);
             });
@@ -123,7 +157,17 @@ const reportsController = {
                 attendanceByDate,
                 summary,
                 filters: { startDate, endDate, classId, departmentId },
-                totalRecords: sortedAttendanceData.length
+                totalRecords: sortedAttendanceData.length,
+                totalStudents: sortedStudents.length,
+                studentsWithoutAttendance: studentsWithoutAttendance.length,
+                studentsWithoutAttendanceList: sortedStudentsWithoutAttendance.map(student => ({
+                    id: student.id,
+                    studentCode: student.studentCode,
+                    saintName: student.saintName,
+                    fullName: student.fullName,
+                    classId: student.classId,
+                    className: student.class?.name
+                }))
             });
 
         } catch (error) {
@@ -178,10 +222,10 @@ const reportsController = {
             // Calculate ranks based on final scores
             const studentsWithRanks = sortedStudents.map(student => {
                 const finalScore = parseFloat(student.finalAverage || 0);
-                
+
                 // Find rank by counting students with higher scores
                 const rank = studentsForRanking.findIndex(s => s.id === student.id) + 1;
-                
+
                 return {
                     ...student,
                     finalAverage: parseFloat(student.finalAverage || 0),

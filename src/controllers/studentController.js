@@ -4,7 +4,7 @@ const { sortStudentsByLastName } = require('../utils/sortUtils');
 const checkUtils = require('../utils/checkUtils');
 
 const studentController = {
-    // Get all students (with filters by role) - Updated to include isActive filter
+    // Get all students (with filters by role)
     async getStudents(req, res) {
         try {
             const { role, departmentId } = req.user;
@@ -68,13 +68,41 @@ const studentController = {
                 }
             });
 
-            // Sort theo tên (chữ cuối) bằng utility function
+            // Sort students by Vietnamese last name
+            const sortStudentsByLastName = (students) => {
+                return students.sort((a, b) => {
+                    const aLastName = a.fullName.split(' ').pop();
+                    const bLastName = b.fullName.split(' ').pop();
+                    return aLastName.localeCompare(bLastName, 'vi', {
+                        sensitivity: 'base',
+                        numeric: true,
+                        ignorePunctuation: true
+                    });
+                });
+            };
+
             const sortedStudents = sortStudentsByLastName(allStudents);
+
+            // Calculate attendance scores for each student
+            const studentsWithScores = sortedStudents.map(student => {
+                const totalWeeks = student.academicYear?.totalWeeks || 0;
+
+                const thursdayScore = totalWeeks ?
+                    Math.round((student.thursdayAttendanceCount / totalWeeks * 10) * 100) / 100 : 0;
+                const sundayScore = totalWeeks ?
+                    Math.round((student.sundayAttendanceCount / totalWeeks * 10) * 100) / 100 : 0;
+
+                return {
+                    ...student,
+                    thursdayScore,
+                    sundayScore
+                };
+            });
 
             // Pagination in-memory
             const skip = (page - 1) * limit;
-            const students = sortedStudents.slice(skip, skip + parseInt(limit));
-            const total = sortedStudents.length;
+            const students = studentsWithScores.slice(skip, skip + parseInt(limit));
+            const total = studentsWithScores.length;
 
             res.json({
                 students,
@@ -96,69 +124,54 @@ const studentController = {
     async getStudentById(req, res) {
         try {
             const { id } = req.params;
-
+    
             const student = await prisma.student.findUnique({
                 where: { id: parseInt(id) },
                 include: {
-                    class: {
-                        include: {
-                            department: true
-                        }
-                    },
+                    class: { include: { department: true } },
                     academicYear: true,
                     attendance: {
                         orderBy: { attendanceDate: 'desc' },
                         take: 10,
                         include: {
-                            marker: {
-                                select: { fullName: true }
-                            }
+                            marker: { select: { fullName: true } }
                         }
                     }
                 }
             });
-
+    
             if (!student) {
                 return res.status(404).json({ error: 'Học sinh không tồn tại' });
             }
-
-            // Calculate additional score statistics
-            const scoreStats = {
-                attendanceProgress: {
-                    thursday: {
-                        attended: student.thursdayAttendanceCount,
-                        total: student.academicYear?.totalWeeks || 0,
-                        percentage: student.academicYear?.totalWeeks ?
-                            Math.round((student.thursdayAttendanceCount / student.academicYear.totalWeeks) * 100) : 0
-                    },
-                    sunday: {
-                        attended: student.sundayAttendanceCount,
-                        total: student.academicYear?.totalWeeks || 0,
-                        percentage: student.academicYear?.totalWeeks ?
-                            Math.round((student.sundayAttendanceCount / student.academicYear.totalWeeks) * 100) : 0
+    
+            const totalWeeks = student.academicYear?.totalWeeks || 0;
+            
+            // Calculate once and reuse
+            const thursdayScore = totalWeeks ? (student.thursdayAttendanceCount * (10 / totalWeeks)) : 0;
+            const sundayScore = totalWeeks ? (student.sundayAttendanceCount * (10 / totalWeeks)) : 0;
+    
+            const enrichedStudent = {
+                ...student,
+                calculatedStats: {
+                    attendanceProgress: {
+                        thursday: {
+                            attended: student.thursdayAttendanceCount,
+                            total: totalWeeks,
+                            percentage: totalWeeks ? Math.round((student.thursdayAttendanceCount / totalWeeks) * 100) : 0,
+                            score: thursdayScore
+                        },
+                        sunday: {
+                            attended: student.sundayAttendanceCount,
+                            total: totalWeeks,
+                            percentage: totalWeeks ? Math.round((student.sundayAttendanceCount / totalWeeks) * 100) : 0,
+                            score: sundayScore
+                        }
                     }
-                },
-                scoreBreakdown: {
-                    attendance: {
-                        thursday: student.academicYear?.totalWeeks ?
-                            (student.thursdayAttendanceCount * (10 / student.academicYear.totalWeeks)) : 0,
-                        sunday: student.academicYear?.totalWeeks ?
-                            (student.sundayAttendanceCount * (10 / student.academicYear.totalWeeks)) : 0,
-                        average: parseFloat(student.attendanceAverage)
-                    },
-                    study: {
-                        study45Hk1: parseFloat(student.study45Hk1),
-                        examHk1: parseFloat(student.examHk1),
-                        study45Hk2: parseFloat(student.study45Hk2),
-                        examHk2: parseFloat(student.examHk2),
-                        average: parseFloat(student.studyAverage)
-                    },
-                    final: parseFloat(student.finalAverage)
                 }
             };
-
-            res.json({ ...student, scoreStats });
-
+    
+            res.json(enrichedStudent);
+    
         } catch (error) {
             console.error('Get student error:', error);
             res.status(500).json({ error: 'Lỗi server' });
@@ -426,6 +439,9 @@ const studentController = {
                 where: { id: parseInt(id) },
                 include: {
                     academicYear: true,
+                    class: {
+                        include: { department: true }
+                    },
                     attendance: {
                         orderBy: { attendanceDate: 'desc' },
                         select: {

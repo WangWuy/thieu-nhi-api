@@ -497,7 +497,7 @@ router.post('/students/bulk-update-scores',
 router.get('/reports/attendance',
     apiLimiter,
     verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
+    // requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
     queryValidation.dateRange,
     reportsController.getAttendanceReport
 );
@@ -505,7 +505,7 @@ router.get('/reports/attendance',
 router.get('/reports/student-scores',
     apiLimiter,
     verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
+    // requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
     reportsController.getStudentScores
 );
 

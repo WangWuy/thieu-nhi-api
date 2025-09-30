@@ -43,11 +43,16 @@ const pendingUserController = {
                 });
             }
 
+            // Chuẩn hóa các trường optional: email, phoneNumber, address
+            const normalizedEmail = email && email.trim() !== '' ? email.trim() : null;
+            const normalizedPhoneNumber = phoneNumber && phoneNumber.trim() !== '' ? phoneNumber.trim() : null;
+            const normalizedAddress = address && address.trim() !== '' ? address.trim() : null;
+
             // Kiểm tra email nếu có
-            if (email) {
+            if (normalizedEmail) {
                 const [existingEmailUser, existingEmailPending] = await Promise.all([
-                    prisma.user.findUnique({ where: { email } }),
-                    prisma.pendingUser.findUnique({ where: { email } })
+                    prisma.user.findUnique({ where: { email: normalizedEmail } }),
+                    prisma.pendingUser.findUnique({ where: { email: normalizedEmail } })
                 ]);
 
                 if (existingEmailUser || existingEmailPending) {
@@ -64,14 +69,14 @@ const pendingUserController = {
             const pendingUser = await prisma.pendingUser.create({
                 data: {
                     username,
-                    email,
+                    email: normalizedEmail,
                     passwordHash,
                     role,
                     saintName,
                     fullName,
                     birthDate: birthDate ? new Date(birthDate) : null,
-                    phoneNumber,
-                    address,
+                    phoneNumber: normalizedPhoneNumber,
+                    address: normalizedAddress,
                     departmentId: departmentId ? parseInt(departmentId) : null,
                     status: 'pending'
                 },

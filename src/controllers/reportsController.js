@@ -1,5 +1,4 @@
 const { prisma } = require('../../prisma/client');
-const { getWeekRange, getAttendanceTargetDate } = require('../utils/weekUtils');
 const { sortStudentsByLastName } = require('../utils/sortUtils');
 
 const reportsController = {
@@ -226,17 +225,41 @@ const reportsController = {
                 // Find rank by counting students with higher scores
                 const rank = studentsForRanking.findIndex(s => s.id === student.id) + 1;
 
+                // Calculate attendance scores
+                const totalWeeks = student.academicYear?.totalWeeks || 0;
+                const thursdayScore = totalWeeks ?
+                    Math.round((student.thursdayAttendanceCount / totalWeeks * 10) * 100) / 100 : 0;
+                const sundayScore = totalWeeks ?
+                    Math.round((student.sundayAttendanceCount / totalWeeks * 10) * 100) / 100 : 0;
+
                 return {
                     ...student,
+                    // Convert Decimal to number
                     finalAverage: parseFloat(student.finalAverage || 0),
                     studyAverage: parseFloat(student.studyAverage || 0),
                     attendanceAverage: parseFloat(student.attendanceAverage || 0),
-                    midtermAverage: parseFloat(student.midtermAverage || 0),
-                    hk1_45min: parseFloat(student.hk1_45min || 0),
-                    hk1_exam: parseFloat(student.hk1_exam || 0),
-                    hk2_45min: parseFloat(student.hk2_45min || 0),
-                    hk2_exam: parseFloat(student.hk2_exam || 0),
-                    calculatedRank: rank
+
+                    // Study scores - HK1
+                    study45Hk1: parseFloat(student.study45Hk1 || 0),
+                    examHk1: parseFloat(student.examHk1 || 0),
+
+                    // Study scores - HK2
+                    study45Hk2: parseFloat(student.study45Hk2 || 0),
+                    examHk2: parseFloat(student.examHk2 || 0),
+
+                    // Attendance counts
+                    thursdayAttendanceCount: student.thursdayAttendanceCount || 0,
+                    sundayAttendanceCount: student.sundayAttendanceCount || 0,
+
+                    // Attendance scores (calculated)
+                    thursdayScore,
+                    sundayScore,
+
+                    // Calculated rank
+                    calculatedRank: rank,
+
+                    // Kết quả dựa trên điểm tổng
+                    result: calculateResult(parseFloat(student.finalAverage || 0))
                 };
             });
 
@@ -266,5 +289,13 @@ const reportsController = {
         }
     },
 };
+
+function calculateResult(finalAverage) {
+    if (finalAverage >= 8.5) return 'Giỏi';
+    if (finalAverage >= 7.0) return 'Khá';
+    if (finalAverage >= 5.5) return 'Trung bình';
+    if (finalAverage >= 4.0) return 'Yếu';
+    return 'Kém';
+}
 
 module.exports = reportsController;

@@ -1,4 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
+const { PrismaClient, Prisma } = require('@prisma/client');
 
 // Singleton pattern để tránh multiple instances
 let prisma;
@@ -48,5 +48,6 @@ process.on('SIGTERM', gracefulShutdown);
 
 module.exports = {
     prisma,
+    Prisma,
     testConnection
 };

@@ -574,4 +574,131 @@ const studentController = {
     }
 };
 
+const studentAvatarMethods = {
+    // Upload avatar cho student
+    async uploadAvatar(req, res) {
+        try {
+            const { id } = req.params;
+            const studentId = parseInt(id);
+
+            if (!req.file) {
+                return res.status(400).json({ error: 'Vui lòng chọn file ảnh' });
+            }
+
+            // Lấy thông tin student hiện tại
+            const currentStudent = await prisma.student.findUnique({
+                where: { id: studentId },
+                select: { 
+                    avatarUrl: true, 
+                    avatarPublicId: true,
+                    classId: true
+                }
+            });
+
+            if (!currentStudent) {
+                return res.status(404).json({ error: 'Học sinh không tồn tại' });
+            }
+
+            // Check quyền: phân đoàn trưởng chỉ upload cho học sinh trong phân đoàn
+            if (req.user.role === 'phan_doan_truong') {
+                const studentClass = await prisma.class.findUnique({
+                    where: { id: currentStudent.classId },
+                    select: { departmentId: true }
+                });
+
+                if (studentClass.departmentId !== req.user.departmentId) {
+                    return res.status(403).json({ error: 'Không có quyền thực hiện' });
+                }
+            }
+
+            // Xóa avatar cũ nếu có
+            if (currentStudent.avatarUrl) {
+                await deleteAvatar(currentStudent.avatarUrl);
+            }
+
+            // Cập nhật avatar mới
+            const updatedStudent = await prisma.student.update({
+                where: { id: studentId },
+                data: {
+                    avatarUrl: req.file.path,
+                    avatarPublicId: req.file.filename
+                },
+                select: {
+                    id: true,
+                    studentCode: true,
+                    fullName: true,
+                    avatarUrl: true
+                }
+            });
+
+            res.json({
+                message: 'Upload avatar thành công',
+                student: updatedStudent
+            });
+
+        } catch (error) {
+            console.error('Upload student avatar error:', error);
+            res.status(500).json({ error: 'Lỗi server' });
+        }
+    },
+
+    // Xóa avatar student
+    async deleteAvatar(req, res) {
+        try {
+            const { id } = req.params;
+            const studentId = parseInt(id);
+
+            const student = await prisma.student.findUnique({
+                where: { id: studentId },
+                select: { 
+                    avatarUrl: true, 
+                    avatarPublicId: true,
+                    classId: true
+                }
+            });
+
+            if (!student) {
+                return res.status(404).json({ error: 'Học sinh không tồn tại' });
+            }
+
+            // Check quyền
+            if (req.user.role === 'phan_doan_truong') {
+                const studentClass = await prisma.class.findUnique({
+                    where: { id: student.classId },
+                    select: { departmentId: true }
+                });
+
+                if (studentClass.departmentId !== req.user.departmentId) {
+                    return res.status(403).json({ error: 'Không có quyền thực hiện' });
+                }
+            }
+
+            if (!student.avatarUrl) {
+                return res.status(400).json({ error: 'Học sinh chưa có avatar' });
+            }
+
+            // Xóa trên Cloudinary
+            await deleteAvatar(student.avatarUrl);
+
+            // Cập nhật database
+            await prisma.student.update({
+                where: { id: studentId },
+                data: {
+                    avatarUrl: null,
+                    avatarPublicId: null
+                }
+            });
+
+            res.json({ message: 'Xóa avatar thành công' });
+
+        } catch (error) {
+            console.error('Delete student avatar error:', error);
+            res.status(500).json({ error: 'Lỗi server' });
+        }
+    }
+};
+
+// Merge vào studentController
+Object.assign(studentController, studentAvatarMethods);
+
 module.exports = studentController;

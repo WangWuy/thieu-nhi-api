@@ -1,5 +1,6 @@
 const { prisma } = require('../../prisma/client');
 const bcrypt = require('bcryptjs');
+const { deleteAvatar } = require('../config/cloudinary');
 
 const userController = {
     // Get all users (filtered by role)
@@ -451,5 +452,111 @@ const userController = {
         }
     }
 };
+
+const avatarMethods = {
+    // Upload avatar cho user
+    async uploadAvatar(req, res) {
+        try {
+            const { id } = req.params;
+            const userId = parseInt(id);
+
+            // Check quyền: chỉ được upload avatar của mình hoặc admin
+            if (req.user.id !== userId && req.user.role !== 'ban_dieu_hanh') {
+                return res.status(403).json({ error: 'Không có quyền thực hiện' });
+            }
+
+            if (!req.file) {
+                return res.status(400).json({ error: 'Vui lòng chọn file ảnh' });
+            }
+
+            // Lấy thông tin user hiện tại
+            const currentUser = await prisma.user.findUnique({
+                where: { id: userId },
+                select: { avatarUrl: true, avatarPublicId: true }
+            });
+
+            if (!currentUser) {
+                return res.status(404).json({ error: 'Người dùng không tồn tại' });
+            }
+
+            // Xóa avatar cũ nếu có
+            if (currentUser.avatarUrl) {
+                await deleteAvatar(currentUser.avatarUrl);
+            }
+
+            // Cập nhật avatar mới
+            const updatedUser = await prisma.user.update({
+                where: { id: userId },
+                data: {
+                    avatarUrl: req.file.path,
+                    avatarPublicId: req.file.filename
+                },
+                select: {
+                    id: true,
+                    username: true,
+                    fullName: true,
+                    avatarUrl: true,
+                    role: true
+                }
+            });
+
+            res.json({
+                message: 'Upload avatar thành công',
+                user: updatedUser
+            });
+
+        } catch (error) {
+            console.error('Upload user avatar error:', error);
+            res.status(500).json({ error: 'Lỗi server' });
+        }
+    },
+
+    // Xóa avatar
+    async deleteAvatar(req, res) {
+        try {
+            const { id } = req.params;
+            const userId = parseInt(id);
+
+            // Check quyền
+            if (req.user.id !== userId && req.user.role !== 'ban_dieu_hanh') {
+                return res.status(403).json({ error: 'Không có quyền thực hiện' });
+            }
+
+            const user = await prisma.user.findUnique({
+                where: { id: userId },
+                select: { avatarUrl: true, avatarPublicId: true }
+            });
+
+            if (!user) {
+                return res.status(404).json({ error: 'Người dùng không tồn tại' });
+            }
+
+            if (!user.avatarUrl) {
+                return res.status(400).json({ error: 'Người dùng chưa có avatar' });
+            }
+
+            // Xóa trên Cloudinary
+            await deleteAvatar(user.avatarUrl);
+
+            // Cập nhật database
+            await prisma.user.update({
+                where: { id: userId },
+                data: {
+                    avatarUrl: null,
+                    avatarPublicId: null
+                }
+            });
+
+            res.json({ message: 'Xóa avatar thành công' });
+
+        } catch (error) {
+            console.error('Delete user avatar error:', error);
+            res.status(500).json({ error: 'Lỗi server' });
+        }
+    }
+};
+
+// Merge vào userController
+Object.assign(userController, avatarMethods);
 
 module.exports = userController;

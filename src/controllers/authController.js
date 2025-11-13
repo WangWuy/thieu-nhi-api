@@ -114,6 +114,7 @@ const authController = {
                     username: user.username,
                     fullName: user.fullName,
                     role: user.role,
+                    avatarUrl: user.avatarUrl,
                     department: user.department,
                     classTeacher: userWithCounts.classTeachers.length > 0
                         ? {

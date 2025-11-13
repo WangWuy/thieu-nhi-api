@@ -51,6 +51,8 @@ model User {
   role         UserRole
   saintName    String?  @map("saint_name")
   fullName     String   @map("full_name")
+  avatarUrl    String?  @map("avatar_url")
+  avatarPublicId String? @map("avatar_public_id")
   birthDate    DateTime? @map("birth_date")
   phoneNumber  String?  @map("phone_number")
   address      String?
@@ -92,6 +94,8 @@ model Student {
   qrCode           String?  @map("qr_code")
   saintName        String?  @map("saint_name")
   fullName         String   @map("full_name")
+  avatarUrl        String?  @map("avatar_url")
+  avatarPublicId   String?  @map("avatar_public_id")
   birthDate        DateTime? @map("birth_date")
   phoneNumber      String?  @map("phone_number")
   parentPhone1     String?  @map("parent_phone_1")

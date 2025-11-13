@@ -13,6 +13,7 @@ const reportsController = require('../controllers/reportsController');
 const importUserController = require('../controllers/importUserController');
 const importAttendanceController = require('../controllers/importAttendanceController');
 const pendingUserController = require('../controllers/pendingUserController');
+const { uploadUserAvatar, uploadStudentAvatar } = require('../config/cloudinary');
 
 const { verifyToken, requireRole, requireAdmin } = require('../middleware/auth');
 
@@ -144,6 +145,20 @@ router.get('/teachers',
     userController.getTeachers
 );
 
+// USER AVATAR ROUTES
+router.post('/users/:id/avatar',
+    apiLimiter,
+    verifyToken,
+    uploadUserAvatar.single('avatar'),
+    userController.uploadAvatar
+);
+
+router.delete('/users/:id/avatar',
+    apiLimiter,
+    verifyToken,
+    userController.deleteAvatar
+);
+
 // ==================== DEPARTMENT ROUTES ====================
 router.get('/departments',
     apiLimiter,
@@ -253,6 +268,21 @@ router.get('/classes/:classId/students',
     studentController.getStudentsByClass
 );
 
+// STUDENT AVATAR ROUTES
+router.post('/students/:id/avatar',
+    apiLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
+    uploadStudentAvatar.single('avatar'),
+    studentController.uploadAvatar
+);
+
+router.delete('/students/:id/avatar',
+    apiLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
+    studentController.deleteAvatar
+);
 
 // ==================== ATTENDANCE ROUTES ====================
 router.get('/classes/:classId/attendance',

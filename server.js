@@ -27,7 +27,7 @@ app.use(generalLimiter);
 
 // CORS configuration
 const corsOptions = {
-    origin: process.env.NODE_ENV === 'production' 
+    origin: process.env.NODE_ENV === 'production'
         ? process.env.FRONTEND_URL?.split(',') || ['https://thienan-admin.vercel.app']
         : process.env.FRONTEND_URL?.split(',') || ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000'],
     credentials: true,
@@ -39,7 +39,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 // Body parsing middleware
-app.use(express.json({ 
+app.use(express.json({
     limit: '10mb',
     verify: (req, res, buf) => {
         // Log large payloads for monitoring
@@ -49,37 +49,37 @@ app.use(express.json({
     }
 }));
 
-app.use(express.urlencoded({ 
-    extended: true, 
-    limit: '10mb' 
+app.use(express.urlencoded({
+    extended: true,
+    limit: '10mb'
 }));
 
 // Request logging middleware
 app.use((req, res, next) => {
     const start = Date.now();
-    
+
     // Log request
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - IP: ${req.ip}`);
-    
+
     // Log response when finished
     res.on('finish', () => {
         const duration = Date.now() - start;
         const logLevel = res.statusCode >= 400 ? 'ERROR' : 'INFO';
         console.log(`[${logLevel}] ${req.method} ${req.url} - ${res.statusCode} - ${duration}ms`);
-        
+
         // Log slow requests
         if (duration > 5000) {
             console.warn(`Slow request detected: ${req.method} ${req.url} took ${duration}ms`);
         }
     });
-    
+
     next();
 });
 
 // Health check endpoint (không rate limit)
 app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'OK', 
+    res.json({
+        status: 'OK',
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
         environment: process.env.NODE_ENV || 'development'
@@ -91,7 +91,7 @@ app.use('/api', apiRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
-    res.json({ 
+    res.json({
         message: 'Thiếu Nhi API Server đang chạy!',
         version: '1.0.0',
         docs: '/api/test'
@@ -100,7 +100,7 @@ app.get('/', (req, res) => {
 
 // 404 handler
 app.use('*', (req, res) => {
-    res.status(404).json({ 
+    res.status(404).json({
         error: 'Endpoint not found',
         message: `Route ${req.method} ${req.originalUrl} not found`,
         availableRoutes: [
@@ -115,38 +115,38 @@ app.use('*', (req, res) => {
 // Global error handler
 app.use((err, req, res, next) => {
     console.error('Global error handler:', err);
-    
+
     // Prisma errors
     if (err.code === 'P2002') {
-        return res.status(409).json({ 
+        return res.status(409).json({
             error: 'Conflict',
             message: 'Dữ liệu đã tồn tại (duplicate constraint)',
             field: err.meta?.target
         });
     }
-    
+
     if (err.code === 'P2025') {
-        return res.status(404).json({ 
+        return res.status(404).json({
             error: 'Not Found',
             message: 'Không tìm thấy dữ liệu'
         });
     }
-    
+
     // JWT errors
     if (err.name === 'JsonWebTokenError') {
-        return res.status(401).json({ 
+        return res.status(401).json({
             error: 'Invalid Token',
             message: 'Token không hợp lệ'
         });
     }
-    
+
     if (err.name === 'TokenExpiredError') {
-        return res.status(401).json({ 
+        return res.status(401).json({
             error: 'Token Expired',
             message: 'Token đã hết hạn'
         });
     }
-    
+
     // Validation errors
     if (err.name === 'ValidationError') {
         return res.status(400).json({
@@ -155,7 +155,7 @@ app.use((err, req, res, next) => {
             details: err.details
         });
     }
-    
+
     // Rate limit errors
     if (err.status === 429) {
         return res.status(429).json({
@@ -163,18 +163,34 @@ app.use((err, req, res, next) => {
             message: err.message || 'Quá nhiều yêu cầu, vui lòng thử lại sau'
         });
     }
-    
+
     // Default server error
     const status = err.status || err.statusCode || 500;
-    const message = process.env.NODE_ENV === 'production' 
-        ? 'Lỗi server nội bộ' 
+    const message = process.env.NODE_ENV === 'production'
+        ? 'Lỗi server nội bộ'
         : err.message;
-    
+
     res.status(status).json({
         error: 'Internal Server Error',
         message,
         ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
     });
+});
+
+// Multer error handler
+app.use((err, req, res, next) => {
+    if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({ error: 'File quá lớn. Kích thước tối đa 5MB' });
+        }
+        return res.status(400).json({ error: err.message });
+    }
+
+    if (err.message.includes('Chỉ chấp nhận file ảnh')) {
+        return res.status(400).json({ error: err.message });
+    }
+
+    next(err);
 });
 
 // Start server
@@ -188,22 +204,22 @@ const server = app.listen(PORT, () => {
 // Graceful shutdown
 const gracefulShutdown = (signal) => {
     console.log(`\n📡 Received ${signal}. Starting graceful shutdown...`);
-    
+
     server.close((err) => {
         console.log('🔴 HTTP server closed');
-        
+
         if (err) {
             console.error('❌ Error during server shutdown:', err);
             process.exit(1);
         }
-        
+
         // Close database connections
         // prisma.$disconnect() if needed
-        
+
         console.log('✅ Graceful shutdown completed');
         process.exit(0);
     });
-    
+
     // Force shutdown after 30 seconds
     setTimeout(() => {
         console.error('⏰ Forced shutdown after 30s timeout');

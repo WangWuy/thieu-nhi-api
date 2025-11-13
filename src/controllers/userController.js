@@ -61,6 +61,8 @@ const userController = {
                         phoneNumber: true,
                         address: true,
                         departmentId: true,
+                        avatarUrl: true,
+                        avatarPublicId: true,
                         isActive: true,
                         createdAt: true,
                         department: true,
@@ -111,6 +113,8 @@ const userController = {
                     phoneNumber: true,
                     address: true,
                     departmentId: true,
+                    avatarUrl: true,
+                    avatarPublicId: true,
                     isActive: true,
                     createdAt: true,
                     department: true,
@@ -194,6 +198,8 @@ const userController = {
                     phoneNumber: true,
                     address: true,
                     departmentId: true,
+                    avatarUrl: true,
+                    avatarPublicId: true,
                     isActive: true,
                     createdAt: true,
                     department: true
@@ -239,6 +245,8 @@ const userController = {
                     phoneNumber: true,
                     address: true,
                     departmentId: true,
+                    avatarUrl: true,
+                    avatarPublicId: true,
                     isActive: true,
                     createdAt: true,
                     department: true,
@@ -305,7 +313,7 @@ const userController = {
                 data: { isActive: false }
             });
 
-            res.json({ 
+            res.json({
                 message: 'Vô hiệu hóa tài khoản thành công',
                 user: {
                     id: user.id,
@@ -343,7 +351,7 @@ const userController = {
                 data: { isActive: true }
             });
 
-            res.json({ 
+            res.json({
                 message: 'Kích hoạt tài khoản thành công',
                 user: {
                     id: user.id,
@@ -364,8 +372,8 @@ const userController = {
             const { action } = req.body; // 'activate' hoặc 'deactivate'
 
             if (!action || !['activate', 'deactivate'].includes(action)) {
-                return res.status(400).json({ 
-                    error: 'Action không hợp lệ. Sử dụng "activate" hoặc "deactivate"' 
+                return res.status(400).json({
+                    error: 'Action không hợp lệ. Sử dụng "activate" hoặc "deactivate"'
                 });
             }
 
@@ -380,7 +388,7 @@ const userController = {
             }
 
             const newStatus = action === 'activate';
-            
+
             // Check if already in desired status
             if (user.isActive === newStatus) {
                 const statusText = newStatus ? 'đã được kích hoạt' : 'đã bị vô hiệu hóa';
@@ -395,7 +403,7 @@ const userController = {
             const actionText = newStatus ? 'Kích hoạt' : 'Vô hiệu hóa';
             const statusText = newStatus ? 'được kích hoạt' : 'bị vô hiệu hóa';
 
-            res.json({ 
+            res.json({
                 message: `${actionText} tài khoản thành công`,
                 user: {
                     id: user.id,

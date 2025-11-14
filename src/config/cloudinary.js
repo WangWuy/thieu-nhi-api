@@ -14,22 +14,33 @@ const userAvatarStorage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
         folder: 'avatars/users',
-        allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+        resource_type: 'image', // Chỉ accept image
         transformation: [
-            { width: 500, height: 500, crop: 'fill', gravity: 'face' }
+            { 
+                width: 500, 
+                height: 500, 
+                crop: 'fill', 
+                gravity: 'face',
+                fetch_format: 'auto' // Auto convert sang format tối ưu
+            }
         ],
         public_id: (req, file) => `user_${req.params.id || req.user.id}_${Date.now()}`
     }
 });
 
-// Storage cho Student avatars
 const studentAvatarStorage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
         folder: 'avatars/students',
-        allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'],
+        resource_type: 'image',
         transformation: [
-            { width: 500, height: 500, crop: 'fill', gravity: 'face' }
+            { 
+                width: 500, 
+                height: 500, 
+                crop: 'fill', 
+                gravity: 'face',
+                fetch_format: 'auto'
+            }
         ],
         public_id: (req, file) => `student_${req.params.id}_${Date.now()}`
     }
@@ -47,28 +58,6 @@ const uploadUserAvatar = multer({
     storage: userAvatarStorage,
     limits: {
         fileSize: 5 * 1024 * 1024 // 5MB
-    },
-    fileFilter: (req, file, cb) => {
-        // Check mimetype
-        const isImageMimetype = file.mimetype.startsWith('image/');
-        
-        // Check file extension (fallback cho mobile app)
-        const allowedExtensions = /\.(jpg|jpeg|png|webp|heic|heif)$/i;
-        const hasValidExtension = allowedExtensions.test(file.originalname);
-        
-        // Log để debug
-        console.log('Upload file:', {
-            originalname: file.originalname,
-            mimetype: file.mimetype,
-            isImageMimetype,
-            hasValidExtension
-        });
-        
-        if (isImageMimetype || hasValidExtension) {
-            cb(null, true);
-        } else {
-            cb(new Error('Chỉ chấp nhận file ảnh (jpg, jpeg, png, webp)'), false);
-        }
     }
 });
 

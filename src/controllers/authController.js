@@ -141,6 +141,26 @@ const authController = {
         }
     },
 
+    // 🚪 Đăng xuất
+    async logout(req, res) {
+        try {
+            const token = req.headers.authorization?.split(' ')[1];
+            console.log(`🚪 Logout: ${req.user?.username || req.user?.userId} - Token: ${token ? token.slice(0, 10) + '...' : 'N/A'}`);
+
+            // Với JWT stateless, client chỉ cần xóa token phía frontend
+            res.json({
+                success: true,
+                message: 'Đăng xuất thành công'
+            });
+        } catch (error) {
+            console.error('❌ Lỗi đăng xuất:', error);
+            res.status(500).json({
+                error: 'Internal Server Error',
+                message: 'Lỗi server, vui lòng thử lại sau'
+            });
+        }
+    },
+
     // 👤 Lấy thông tin user hiện tại (có tổng thiếu nhi theo lớp)
     async me(req, res) {
         try {

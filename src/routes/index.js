@@ -55,6 +55,12 @@ router.post('/auth/login',
     authController.login
 );
 
+router.post('/auth/logout',
+    apiLimiter,
+    verifyToken,
+    authController.logout
+);
+
 router.get('/auth/me',
     apiLimiter,
     verifyToken,

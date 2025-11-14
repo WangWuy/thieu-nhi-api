@@ -27,11 +27,18 @@ const studentAvatarStorage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
         folder: 'avatars/students',
-        allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'],
         transformation: [
             { width: 500, height: 500, crop: 'fill', gravity: 'face' }
         ],
         public_id: (req, file) => `student_${req.params.id}_${Date.now()}`
+    }
+});
+
+const uploadStudentAvatar = multer({
+    storage: studentAvatarStorage,
+    limits: {
+        fileSize: 5 * 1024 * 1024
     }
 });
 
@@ -42,21 +49,22 @@ const uploadUserAvatar = multer({
         fileSize: 5 * 1024 * 1024 // 5MB
     },
     fileFilter: (req, file, cb) => {
-        if (file.mimetype.startsWith('image/')) {
-            cb(null, true);
-        } else {
-            cb(new Error('Chỉ chấp nhận file ảnh (jpg, jpeg, png, webp)'), false);
-        }
-    }
-});
-
-const uploadStudentAvatar = multer({
-    storage: studentAvatarStorage,
-    limits: {
-        fileSize: 5 * 1024 * 1024 // 5MB
-    },
-    fileFilter: (req, file, cb) => {
-        if (file.mimetype.startsWith('image/')) {
+        // Check mimetype
+        const isImageMimetype = file.mimetype.startsWith('image/');
+        
+        // Check file extension (fallback cho mobile app)
+        const allowedExtensions = /\.(jpg|jpeg|png|webp|heic|heif)$/i;
+        const hasValidExtension = allowedExtensions.test(file.originalname);
+        
+        // Log để debug
+        console.log('Upload file:', {
+            originalname: file.originalname,
+            mimetype: file.mimetype,
+            isImageMimetype,
+            hasValidExtension
+        });
+        
+        if (isImageMimetype || hasValidExtension) {
             cb(null, true);
         } else {
             cb(new Error('Chỉ chấp nhận file ảnh (jpg, jpeg, png, webp)'), false);

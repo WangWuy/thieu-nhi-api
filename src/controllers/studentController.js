@@ -2,6 +2,7 @@ const { prisma } = require('../../prisma/client');
 const ScoreService = require('../services/scoreService');
 const { sortStudentsByLastName } = require('../utils/sortUtils');
 const checkUtils = require('../utils/checkUtils');
+const { deleteAvatar } = require('../config/cloudinary');
 
 const studentController = {
     // Get all students (with filters by role)

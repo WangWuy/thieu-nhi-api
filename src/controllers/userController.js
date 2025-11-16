@@ -100,9 +100,16 @@ const userController = {
     async getUserById(req, res) {
         try {
             const { id } = req.params;
+            const targetId = parseInt(id);
+
+            // Quyền: admin/phan_doan_truong xem mọi user, còn lại chỉ xem chính mình
+            const isAdminOrLeader = ['ban_dieu_hanh', 'phan_doan_truong'].includes(req.user.role);
+            if (!isAdminOrLeader && req.user.userId !== targetId) {
+                return res.status(403).json({ error: 'Không có quyền thực hiện' });
+            }
 
             const user = await prisma.user.findUnique({
-                where: { id: parseInt(id) },
+                where: { id: targetId },
                 select: {
                     id: true,
                     username: true,
@@ -469,7 +476,7 @@ const avatarMethods = {
             const userId = parseInt(id);
 
             // Check quyền: chỉ được upload avatar của mình hoặc admin
-            if (req.user.id !== userId && req.user.role !== 'ban_dieu_hanh') {
+            if (req.user.userId !== userId && req.user.role !== 'ban_dieu_hanh') {
                 return res.status(403).json({ error: 'Không có quyền thực hiện' });
             }
 
@@ -526,7 +533,7 @@ const avatarMethods = {
             const userId = parseInt(id);
 
             // Check quyền
-            if (req.user.id !== userId && req.user.role !== 'ban_dieu_hanh') {
+            if (req.user.userId !== userId && req.user.role !== 'ban_dieu_hanh') {
                 return res.status(403).json({ error: 'Không có quyền thực hiện' });
             }
 

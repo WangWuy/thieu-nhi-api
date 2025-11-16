@@ -24,7 +24,7 @@ const userAvatarStorage = new CloudinaryStorage({
                 fetch_format: 'auto' // Auto convert sang format tối ưu
             }
         ],
-        public_id: (req, file) => `user_${req.params.id || req.user.id}_${Date.now()}`
+        public_id: (req, file) => `user_${req.params.id || req.user?.userId}_${Date.now()}`
     }
 });
 

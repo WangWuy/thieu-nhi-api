@@ -87,7 +87,6 @@ router.get('/users',
 router.get('/users/:id',
     apiLimiter,
     verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
     userController.getUserById
 );
 

@@ -9,6 +9,9 @@ const { generalLimiter } = require('./src/middleware/rateLimiter');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust proxy to allow correct IP detection behind reverse proxies (for rate limiting)
+app.set('trust proxy', 1);
+
 // Security middlewares
 app.use(helmet({
     contentSecurityPolicy: {

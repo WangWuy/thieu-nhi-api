@@ -22,7 +22,7 @@ const authController = {
                                     department: true,
                                     students: {
                                         where: { isActive: true },
-                                        select: { id: true } // tạm lấy id để đếm, lát bỏ ra
+                                        select: { id: true } // tạm lấy id để đếm
                                     }
                                 }
                             }

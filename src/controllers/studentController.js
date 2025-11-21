@@ -1,6 +1,5 @@
 const { prisma } = require('../../prisma/client');
 const ScoreService = require('../services/scoreService');
-const { sortStudentsByLastName } = require('../utils/sortUtils');
 const checkUtils = require('../utils/checkUtils');
 const { deleteAvatar } = require('../config/cloudinary');
 
@@ -147,12 +146,16 @@ const studentController = {
     
             const totalWeeks = student.academicYear?.totalWeeks || 0;
             
-            // Calculate once and reuse
-            const thursdayScore = totalWeeks ? (student.thursdayAttendanceCount * (10 / totalWeeks)) : 0;
-            const sundayScore = totalWeeks ? (student.sundayAttendanceCount * (10 / totalWeeks)) : 0;
-    
+            // Calculate once and reuse (align with getStudents)
+            const thursdayScore = totalWeeks ?
+                Math.round((student.thursdayAttendanceCount / totalWeeks * 10) * 100) / 100 : 0;
+            const sundayScore = totalWeeks ?
+                Math.round((student.sundayAttendanceCount / totalWeeks * 10) * 100) / 100 : 0;
+
             const enrichedStudent = {
                 ...student,
+                thursdayScore,
+                sundayScore,
                 calculatedStats: {
                     attendanceProgress: {
                         thursday: {

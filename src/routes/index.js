@@ -13,6 +13,8 @@ const reportsController = require('../controllers/reportsController');
 const importUserController = require('../controllers/importUserController');
 const importAttendanceController = require('../controllers/importAttendanceController');
 const pendingUserController = require('../controllers/pendingUserController');
+const backupController = require('../controllers/backupController');
+const alertController = require('../controllers/alertController');
 const { uploadUserAvatar, uploadStudentAvatar } = require('../config/cloudinary');
 
 const { verifyToken, requireRole, requireAdmin } = require('../middleware/auth');
@@ -602,6 +604,93 @@ router.get('/pending-users/stats',
     verifyToken,
     requireAdmin,
     pendingUserController.getPendingUserStats
+);
+
+// ==================== BACKUP ROUTES ====================
+router.get('/backup/excel',
+    strictLimiter,
+    verifyToken,
+    requireAdmin,
+    backupController.exportExcel
+);
+
+router.get('/backup/dump',
+    strictLimiter,
+    verifyToken,
+    requireAdmin,
+    backupController.exportDump
+);
+
+// ==================== ALERT ROUTES ====================
+router.get('/alerts',
+    apiLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
+    alertController.getAlerts
+);
+
+router.post('/alerts',
+    strictLimiter,
+    verifyToken,
+    requireAdmin,
+    alertController.createAlert
+);
+
+router.put('/alerts/:id/read',
+    apiLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
+    alertController.markRead
+);
+
+router.put('/alerts/:id/resolve',
+    apiLimiter,
+    verifyToken,
+    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
+    alertController.markResolved
+);
+
+router.delete('/alerts/:id',
+    strictLimiter,
+    verifyToken,
+    requireAdmin,
+    alertController.deleteAlert
+);
+
+// Alert Rules (admin)
+router.get('/alert-rules',
+    apiLimiter,
+    verifyToken,
+    requireAdmin,
+    alertController.getRules
+);
+
+router.post('/alert-rules',
+    strictLimiter,
+    verifyToken,
+    requireAdmin,
+    alertController.createRule
+);
+
+router.put('/alert-rules/:id',
+    strictLimiter,
+    verifyToken,
+    requireAdmin,
+    alertController.updateRule
+);
+
+router.put('/alert-rules/:id/toggle',
+    strictLimiter,
+    verifyToken,
+    requireAdmin,
+    alertController.toggleRule
+);
+
+router.delete('/alert-rules/:id',
+    strictLimiter,
+    verifyToken,
+    requireAdmin,
+    alertController.deleteRule
 );
 
 module.exports = router;

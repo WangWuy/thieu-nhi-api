@@ -225,3 +225,59 @@ enum PendingUserStatus {
   approved
   rejected
 }
+
+enum AlertType {
+  attendance
+  grades
+  system
+}
+
+enum AlertPriority {
+  high
+  medium
+  low
+}
+
+enum AlertStatus {
+  unread
+  read
+  resolved
+}
+
+model AlertRule {
+  id            Int           @id @default(autoincrement())
+  name          String
+  type          AlertType
+  condition     String
+  threshold     Float
+  priority      AlertPriority @default(medium)
+  enabled       Boolean       @default(true)
+  notification  String[]
+  description   String?
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  alerts        SystemAlert[]
+
+  @@map("alert_rules")
+}
+
+model SystemAlert {
+  id          Int           @id @default(autoincrement())
+  type        AlertType
+  priority    AlertPriority
+  title       String
+  message     String
+  status      AlertStatus   @default(unread)
+  source      String        @default("system")
+  data        Json?
+  ruleId      Int?          @map("rule_id")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  rule        AlertRule?    @relation(fields: [ruleId], references: [id])
+
+  @@index([status])
+  @@index([type, priority])
+  @@map("system_alerts")
+}

@@ -657,6 +657,14 @@ router.delete('/alerts/:id',
     alertController.deleteAlert
 );
 
+// Evaluate rules to generate alerts from current data
+router.post('/alerts/evaluate',
+    strictLimiter,
+    verifyToken,
+    requireAdmin,
+    alertController.evaluateRules
+);
+
 // Alert Rules (admin)
 router.get('/alert-rules',
     apiLimiter,

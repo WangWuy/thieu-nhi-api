@@ -50,8 +50,48 @@ const alertController = {
                 prisma.systemAlert.count({ where: { ...where, status: 'resolved' } })
             ]);
 
+            // Enrich alerts with student/class info if present in data
+            const studentIds = new Set();
+            const classIds = new Set();
+            alerts.forEach(al => {
+                const sid = al.data?.studentId;
+                const cid = al.data?.classId;
+                if (sid) studentIds.add(sid);
+                if (cid) classIds.add(cid);
+            });
+
+            const [students, classes] = await Promise.all([
+                studentIds.size ? prisma.student.findMany({
+                    where: { id: { in: Array.from(studentIds) } },
+                    select: {
+                        id: true,
+                        studentCode: true,
+                        fullName: true,
+                        class: { select: { id: true, name: true, departmentId: true } }
+                    }
+                }) : [],
+                classIds.size ? prisma.class.findMany({
+                    where: { id: { in: Array.from(classIds) } },
+                    select: { id: true, name: true, departmentId: true }
+                }) : []
+            ]);
+
+            const studentMap = new Map(students.map(s => [s.id, s]));
+            const classMap = new Map(classes.map(c => [c.id, c]));
+
+            const enrichedAlerts = alerts.map(al => {
+                const extra = {};
+                if (al.data?.studentId && studentMap.has(al.data.studentId)) {
+                    extra.student = studentMap.get(al.data.studentId);
+                }
+                if (al.data?.classId && classMap.has(al.data.classId)) {
+                    extra.class = classMap.get(al.data.classId);
+                }
+                return { ...al, ...extra };
+            });
+
             return res.json({
-                alerts,
+                alerts: enrichedAlerts,
                 stats: {
                     total,
                     unread,
@@ -133,6 +173,418 @@ const alertController = {
         } catch (error) {
             console.error('Delete alert error:', error);
             return res.status(500).json({ error: 'Không thể xóa cảnh báo' });
+        }
+    },
+
+    // Evaluate enabled rules against current data and create alerts automatically
+    async evaluateRules(req, res) {
+        try {
+            const days = parseInt(req.query.days || '30', 10) || 30; // look-back window
+            const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+            const rules = await prisma.alertRule.findMany({
+                where: { enabled: true },
+                orderBy: { createdAt: 'desc' }
+            });
+
+            const createdAlerts = [];
+
+            // Support attendance_rate rule for now
+            const attendanceRules = rules.filter(r =>
+                r.type === 'attendance' &&
+                r.condition.toLowerCase().includes('attendance_rate')
+            );
+            if (attendanceRules.length) {
+                const [totalAttendance, presentAttendance] = await Promise.all([
+                    prisma.attendance.count({
+                        where: {
+                            attendanceDate: { gte: sinceDate }
+                        }
+                    }),
+                    prisma.attendance.count({
+                        where: {
+                            attendanceDate: { gte: sinceDate },
+                            isPresent: true
+                        }
+                    })
+                ]);
+
+                const attendanceRate = totalAttendance ? presentAttendance / totalAttendance : 1;
+
+                for (const rule of attendanceRules) {
+                    if (attendanceRate < rule.threshold) {
+                        // Avoid spamming: skip if unresolved alert for this rule in window
+                        const existing = await prisma.systemAlert.findFirst({
+                            where: {
+                                ruleId: rule.id,
+                                status: { in: ['unread', 'read'] },
+                                createdAt: { gte: sinceDate }
+                            }
+                        });
+                        if (existing) continue;
+
+                        const alert = await prisma.systemAlert.create({
+                            data: {
+                                type: 'attendance',
+                                priority: rule.priority,
+                                title: 'Tỷ lệ điểm danh thấp',
+                                message: `Tỷ lệ điểm danh ${Math.round(attendanceRate * 1000) / 10}% trong ${days} ngày qua thấp hơn ngưỡng ${Math.round(rule.threshold * 1000) / 10}%`,
+                                source: 'rule_engine',
+                                data: {
+                                    attendanceRate,
+                                    totalAttendance,
+                                    presentAttendance,
+                                    windowDays: days,
+                                    ruleId: rule.id
+                                },
+                                ruleId: rule.id
+                            }
+                        });
+                        createdAlerts.push(alert);
+                    }
+                }
+            }
+
+            // Support study/final score rules (grades)
+            const gradeRules = rules.filter(r =>
+                r.type === 'grades' &&
+                (r.condition.toLowerCase().includes('study_score') ||
+                    r.condition.toLowerCase().includes('final_score'))
+            );
+
+            if (gradeRules.length) {
+                const gradeAgg = await prisma.student.aggregate({
+                    _avg: {
+                        finalAverage: true,
+                        studyAverage: true
+                    },
+                    where: { isActive: true }
+                });
+
+                const avgFinal = gradeAgg._avg.finalAverage ? Number(gradeAgg._avg.finalAverage) : 0;
+                const avgStudy = gradeAgg._avg.studyAverage ? Number(gradeAgg._avg.studyAverage) : 0;
+
+                for (const rule of gradeRules) {
+                    const value = rule.condition.toLowerCase().includes('final_score')
+                        ? avgFinal
+                        : avgStudy;
+
+                    if (value < rule.threshold) {
+                        const existing = await prisma.systemAlert.findFirst({
+                            where: {
+                                ruleId: rule.id,
+                                status: { in: ['unread', 'read'] },
+                                createdAt: { gte: sinceDate }
+                            }
+                        });
+                        if (existing) continue;
+
+                        const alert = await prisma.systemAlert.create({
+                            data: {
+                                type: 'grades',
+                                priority: rule.priority,
+                                title: 'Điểm học tập thấp',
+                                message: `Điểm trung bình ${Math.round(value * 10) / 10} thấp hơn ngưỡng ${Math.round(rule.threshold * 10) / 10}`,
+                                source: 'rule_engine',
+                                data: {
+                                    averageFinal: avgFinal,
+                                    averageStudy: avgStudy,
+                                    windowDays: days,
+                                    ruleId: rule.id
+                                },
+                                ruleId: rule.id
+                            }
+                        });
+                        createdAlerts.push(alert);
+                    }
+                }
+            }
+
+            // Per-student grade rules (student_final_score, student_study_score)
+            const studentGradeRules = rules.filter(r =>
+                r.type === 'grades' &&
+                (r.condition.toLowerCase().includes('student_final_score') ||
+                    r.condition.toLowerCase().includes('student_study_score'))
+            );
+
+            if (studentGradeRules.length) {
+                const students = await prisma.student.findMany({
+                    where: { isActive: true },
+                    select: {
+                        id: true,
+                        studentCode: true,
+                        fullName: true,
+                        finalAverage: true,
+                        studyAverage: true,
+                        class: { select: { id: true, name: true, departmentId: true } }
+                    }
+                });
+
+                for (const student of students) {
+                    for (const rule of studentGradeRules) {
+                        const useFinal = rule.condition.toLowerCase().includes('student_final_score');
+                        const value = useFinal
+                            ? Number(student.finalAverage || 0)
+                            : Number(student.studyAverage || 0);
+
+                        if (value < rule.threshold) {
+                            const existing = await prisma.systemAlert.findFirst({
+                                where: {
+                                    ruleId: rule.id,
+                                    status: { in: ['unread', 'read'] },
+                                    createdAt: { gte: sinceDate },
+                                    data: {
+                                        path: ['studentId'],
+                                        equals: student.id
+                                    }
+                                }
+                            });
+                            if (existing) continue;
+
+                            const alert = await prisma.systemAlert.create({
+                                data: {
+                                    type: 'grades',
+                                    priority: rule.priority,
+                                    title: `Điểm học tập thấp - ${student.fullName}`,
+                                    message: `${useFinal ? 'Điểm tổng' : 'Điểm học'} của ${student.fullName} là ${Math.round(value * 10) / 10}, thấp hơn ngưỡng ${Math.round(rule.threshold * 10) / 10}`,
+                                    source: 'rule_engine',
+                                    data: {
+                                        studentId: student.id,
+                                        studentCode: student.studentCode,
+                                        studentName: student.fullName,
+                                        classId: student.class?.id,
+                                        className: student.class?.name,
+                                        scoreType: useFinal ? 'final' : 'study',
+                                        score: value,
+                                        threshold: rule.threshold,
+                                        windowDays: days,
+                                        ruleId: rule.id
+                                    },
+                                    ruleId: rule.id
+                                }
+                            });
+                            createdAlerts.push(alert);
+                        }
+                    }
+                }
+            }
+
+            // Support simple system rule: class_size < threshold
+            const systemRules = rules.filter(r =>
+                r.type === 'system' &&
+                r.condition.toLowerCase().includes('class_size')
+            );
+
+            if (systemRules.length) {
+                const classes = await prisma.class.findMany({
+                    include: {
+                        department: true,
+                        _count: { select: { students: true } }
+                    }
+                });
+
+                for (const cls of classes) {
+                    for (const rule of systemRules) {
+                        if (cls._count.students < rule.threshold) {
+                            const existing = await prisma.systemAlert.findFirst({
+                                where: {
+                                    ruleId: rule.id,
+                                    status: { in: ['unread', 'read'] },
+                                    createdAt: { gte: sinceDate },
+                                    data: {
+                                        path: ['classId'],
+                                        equals: cls.id
+                                    }
+                                }
+                            });
+                            if (existing) continue;
+
+                            const alert = await prisma.systemAlert.create({
+                                data: {
+                                    type: 'system',
+                                    priority: rule.priority,
+                                    title: `Lớp sĩ số thấp - ${cls.name}`,
+                                    message: `Lớp ${cls.name} chỉ có ${cls._count.students} thiếu nhi, thấp hơn ngưỡng ${rule.threshold}`,
+                                    source: 'rule_engine',
+                                    data: {
+                                        classId: cls.id,
+                                        className: cls.name,
+                                        departmentId: cls.departmentId,
+                                        departmentName: cls.department?.displayName,
+                                        studentCount: cls._count.students,
+                                        ruleId: rule.id
+                                    },
+                                    ruleId: rule.id
+                                }
+                            });
+                            createdAlerts.push(alert);
+                        }
+                    }
+                }
+            }
+
+            // Per-student attendance rules (student_attendance_rate, consecutive_absent)
+            const studentRateRules = rules.filter(r =>
+                r.type === 'attendance' &&
+                r.condition.toLowerCase().includes('student_attendance_rate')
+            );
+            const consecutiveRules = rules.filter(r =>
+                r.type === 'attendance' &&
+                r.condition.toLowerCase().includes('consecutive_absent')
+            );
+
+            if (studentRateRules.length || consecutiveRules.length) {
+                const attendanceRecords = await prisma.attendance.findMany({
+                    where: { attendanceDate: { gte: sinceDate } },
+                    select: { studentId: true, attendanceDate: true, isPresent: true }
+                });
+
+                const studentStats = new Map();
+
+                attendanceRecords.forEach(rec => {
+                    if (!studentStats.has(rec.studentId)) {
+                        studentStats.set(rec.studentId, {
+                            total: 0,
+                            present: 0,
+                            records: []
+                        });
+                    }
+                    const stat = studentStats.get(rec.studentId);
+                    stat.total += 1;
+                    stat.present += rec.isPresent ? 1 : 0;
+                    stat.records.push({
+                        date: rec.attendanceDate,
+                        isPresent: rec.isPresent
+                    });
+                });
+
+                // Fetch student details for alerts
+                const studentIds = Array.from(studentStats.keys());
+                const students = studentIds.length
+                    ? await prisma.student.findMany({
+                        where: { id: { in: studentIds } },
+                        select: {
+                            id: true,
+                            studentCode: true,
+                            fullName: true,
+                            class: { select: { id: true, name: true } }
+                        }
+                    })
+                    : [];
+                const studentMap = new Map(students.map(s => [s.id, s]));
+
+                // Compute streaks and rates
+                for (const [studentId, stat] of studentStats.entries()) {
+                    // student_attendance_rate rules
+                    if (studentRateRules.length && stat.total > 0) {
+                        const rate = stat.present / stat.total;
+                        for (const rule of studentRateRules) {
+                            if (rate < rule.threshold) {
+                                const existing = await prisma.systemAlert.findFirst({
+                                    where: {
+                                        ruleId: rule.id,
+                                        status: { in: ['unread', 'read'] },
+                                        createdAt: { gte: sinceDate },
+                                        data: {
+                                            path: ['studentId'],
+                                            equals: studentId
+                                        }
+                                    }
+                                });
+                                if (existing) continue;
+
+                                const student = studentMap.get(studentId);
+                                const alert = await prisma.systemAlert.create({
+                                    data: {
+                                        type: 'attendance',
+                                        priority: rule.priority,
+                                        title: `Thiếu nhi điểm danh thấp${student ? ` - ${student.fullName}` : ''}`,
+                                        message: `Tỷ lệ điểm danh ${Math.round(rate * 1000) / 10}% trong ${days} ngày qua thấp hơn ngưỡng ${Math.round(rule.threshold * 1000) / 10}%`,
+                                        source: 'rule_engine',
+                                        data: {
+                                            studentId,
+                                            studentCode: student?.studentCode,
+                                            studentName: student?.fullName,
+                                            classId: student?.class?.id,
+                                            className: student?.class?.name,
+                                            attendanceRate: rate,
+                                            totalAttendance: stat.total,
+                                            presentAttendance: stat.present,
+                                            windowDays: days,
+                                            ruleId: rule.id
+                                        },
+                                        ruleId: rule.id
+                                    }
+                                });
+                                createdAlerts.push(alert);
+                            }
+                        }
+                    }
+
+                    // consecutive_absent rules
+                    if (consecutiveRules.length && stat.records.length) {
+                        const sorted = stat.records.sort((a, b) => new Date(b.date) - new Date(a.date));
+                        let currentStreak = 0;
+                        let maxStreak = 0;
+                        for (const rec of sorted) {
+                            if (rec.isPresent) {
+                                currentStreak = 0;
+                            } else {
+                                currentStreak += 1;
+                                maxStreak = Math.max(maxStreak, currentStreak);
+                            }
+                        }
+
+                        for (const rule of consecutiveRules) {
+                            if (maxStreak >= rule.threshold) {
+                                const existing = await prisma.systemAlert.findFirst({
+                                    where: {
+                                        ruleId: rule.id,
+                                        status: { in: ['unread', 'read'] },
+                                        createdAt: { gte: sinceDate },
+                                        data: {
+                                            path: ['studentId'],
+                                            equals: studentId
+                                        }
+                                    }
+                                });
+                                if (existing) continue;
+
+                                const student = studentMap.get(studentId);
+                                const alert = await prisma.systemAlert.create({
+                                    data: {
+                                        type: 'attendance',
+                                        priority: rule.priority,
+                                        title: `Vắng liên tục - ${student?.fullName || 'Học sinh'}`,
+                                        message: `${student?.fullName || 'Học sinh'} vắng ${maxStreak} buổi liên tục trong ${days} ngày qua.`,
+                                        source: 'rule_engine',
+                                        data: {
+                                            studentId,
+                                            studentCode: student?.studentCode,
+                                            studentName: student?.fullName,
+                                            classId: student?.class?.id,
+                                            className: student?.class?.name,
+                                            consecutiveAbsent: maxStreak,
+                                            windowDays: days,
+                                            ruleId: rule.id
+                                        },
+                                        ruleId: rule.id
+                                    }
+                                });
+                                createdAlerts.push(alert);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return res.json({
+                created: createdAlerts.length,
+                alerts: createdAlerts
+            });
+        } catch (error) {
+            console.error('Evaluate rules error:', error);
+            return res.status(500).json({ error: 'Không thể đánh giá quy tắc' });
         }
     },
 

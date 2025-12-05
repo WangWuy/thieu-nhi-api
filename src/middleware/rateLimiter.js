@@ -19,10 +19,23 @@ const rateLimitMessages = {
     }
 };
 
+// Helpers để dễ chỉnh quota qua biến môi trường
+const parseLimit = (value, fallback) => {
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+// Cho phép cấu hình qua env, đặt fallback an toàn cho sản xuất
+const GENERAL_LIMIT_PER_15MIN = parseLimit(process.env.GENERAL_LIMIT_PER_15MIN, 5000);
+const API_LIMIT_PER_MIN = parseLimit(process.env.API_LIMIT_PER_MIN, 300);
+const UPLOAD_LIMIT_PER_15MIN = parseLimit(process.env.UPLOAD_LIMIT_PER_15MIN, 100);
+const ATTENDANCE_LIMIT_PER_5MIN = parseLimit(process.env.ATTENDANCE_LIMIT_PER_5MIN, 500);
+const SEARCH_LIMIT_PER_MIN = parseLimit(process.env.SEARCH_LIMIT_PER_MIN, 300); // ~5 request/giây mỗi user
+
 // General rate limiter - Áp dụng cho tất cả requests
 const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 phút
-    max: 1000, // Giới hạn 1000 requests per IP trong 15 phút
+    max: GENERAL_LIMIT_PER_15MIN, // Giới hạn theo user/IP trong 15 phút
     ...rateLimitMessages.general,
     standardHeaders: true,
     legacyHeaders: false,
@@ -32,7 +45,8 @@ const generalLimiter = rateLimit({
     skipFailedRequests: false,
     // Custom key generator để có thể bypass cho admin nếu cần
     keyGenerator: (req) => {
-        return req.ip;
+        // Ưu tiên userId để tránh chặn cả nhóm chung IP (NAT)
+        return req.user?.userId || req.ip;
     },
     // Handler khi reach limit
     handler: (req, res) => {
@@ -69,7 +83,7 @@ const authLimiter = rateLimit({
 // API rate limiter - Cho các API calls thông thường
 const apiLimiter = rateLimit({
     windowMs: 1 * 60 * 1000, // 1 phút
-    max: 100, // 100 requests per minute
+    max: API_LIMIT_PER_MIN, // requests per minute
     ...rateLimitMessages.api,
     keyGenerator: (req) => {
         // Nếu có JWT token, dùng userId, không thì dùng IP
@@ -102,13 +116,14 @@ const strictLimiter = rateLimit({
 // Upload limiter cho file uploads (nếu có)
 const uploadLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 phút
-    max: 20, // 20 uploads per 15 minutes
+    max: UPLOAD_LIMIT_PER_15MIN, // uploads per 15 minutes
     message: {
         error: 'Upload Rate Limit',
         message: 'Quá nhiều lần upload, vui lòng thử lại sau.'
     },
     standardHeaders: true,
-    legacyHeaders: false
+    legacyHeaders: false,
+    keyGenerator: (req) => req.user?.userId || req.ip
 });
 
 // Password reset limiter
@@ -139,7 +154,7 @@ const createAccountLimiter = rateLimit({
 // Attendance limiter - Cho việc điểm danh batch
 const attendanceLimiter = rateLimit({
     windowMs: 5 * 60 * 1000, // 5 phút
-    max: 50, // 50 lần điểm danh trong 5 phút
+    max: ATTENDANCE_LIMIT_PER_5MIN, // lần điểm danh trong 5 phút
     message: {
         error: 'Attendance Rate Limit',
         message: 'Quá nhiều lần điểm danh, vui lòng chậm lại.'
@@ -152,7 +167,11 @@ const attendanceLimiter = rateLimit({
 // Search limiter - Prevent search spam
 const searchLimiter = rateLimit({
     windowMs: 1 * 60 * 1000, // 1 phút
-    max: 30, // 30 searches per minute
+    // Đếm theo userId, tránh chặn cả nhóm khi chung IP
+    max: () => SEARCH_LIMIT_PER_MIN,
+    keyGenerator: (req) => req.user?.userId || req.ip,
+    standardHeaders: true,
+    legacyHeaders: false,
     message: {
         error: 'Search Rate Limit',
         message: 'Quá nhiều lần tìm kiếm, vui lòng chậm lại.'

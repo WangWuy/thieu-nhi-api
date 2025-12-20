@@ -1,0 +1,283 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AcademicYear {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique // "2024-2025"
+  startDate   DateTime @map("start_date") @db.Date
+  endDate     DateTime @map("end_date") @db.Date
+  totalWeeks  Int      @map("total_weeks")
+  isActive    Boolean  @default(true) @map("is_active")
+  isCurrent   Boolean  @default(false) @map("is_current") // Chỉ có 1 năm học current
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  students    Student[]
+
+  @@map("academic_years")
+}
+
+model Department {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique // 'CHIEN', 'AU', 'THIEU', 'NGHIA'
+  displayName String   @map("display_name")
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  users       User[]
+  classes     Class[]
+  weeklyStats WeeklyStat[]
+  pendingUsers PendingUser[]
+
+  @@map("departments")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String   @map("password_hash")
+  role         UserRole
+  saintName    String?  @map("saint_name")
+  fullName     String   @map("full_name")
+  avatarUrl    String?  @map("avatar_url")
+  avatarPublicId String? @map("avatar_public_id")
+  birthDate    DateTime? @map("birth_date")
+  phoneNumber  String?  @map("phone_number")
+  address      String?
+  departmentId Int?     @map("department_id")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  department       Department? @relation(fields: [departmentId], references: [id])
+  classTeachers    ClassTeacher[]
+  attendanceMarked Attendance[] @relation("MarkedBy")
+  approvedUsers    PendingUser[] @relation("UserApprover")
+
+  @@map("users")
+}
+
+model Class {
+  id           Int      @id @default(autoincrement())
+  name         String
+  departmentId Int      @map("department_id")
+  teacherId    Int?     @map("teacher_id")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  department    Department     @relation(fields: [departmentId], references: [id])
+  classTeachers ClassTeacher[]
+  students      Student[]
+  weeklyStats   WeeklyStat[]
+
+  @@map("classes")
+}
+
+model Student {
+  id               Int      @id @default(autoincrement())
+  studentCode      String   @unique @map("student_code")
+  qrCode           String?  @map("qr_code")
+  saintName        String?  @map("saint_name")
+  fullName         String   @map("full_name")
+  avatarUrl        String?  @map("avatar_url")
+  avatarPublicId   String?  @map("avatar_public_id")
+  birthDate        DateTime? @map("birth_date")
+  phoneNumber      String?  @map("phone_number")
+  parentPhone1     String?  @map("parent_phone_1")
+  parentPhone2     String?  @map("parent_phone_2")
+  address          String?
+  note             String?
+  classId          Int      @map("class_id")
+  academicYearId   Int?     @map("academic_year_id")
+  
+  // Điểm danh (attendance scores)
+  thursdayAttendanceCount Int     @default(0) @map("thursday_attendance_count")
+  sundayAttendanceCount   Int     @default(0) @map("sunday_attendance_count")
+  attendanceAverage       Decimal @default(0) @map("attendance_average") @db.Decimal(4,2)
+  
+  // Điểm học tập (study scores)
+  study45Hk1       Decimal @default(0) @map("study_45_hk1") @db.Decimal(3,1)
+  examHk1          Decimal @default(0) @map("exam_hk1") @db.Decimal(3,1)
+  study45Hk2       Decimal @default(0) @map("study_45_hk2") @db.Decimal(3,1)
+  examHk2          Decimal @default(0) @map("exam_hk2") @db.Decimal(3,1)
+  studyAverage     Decimal @default(0) @map("study_average") @db.Decimal(4,2)
+  
+  // Điểm tổng
+  finalAverage     Decimal @default(0) @map("final_average") @db.Decimal(4,2)
+  
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  class        Class         @relation(fields: [classId], references: [id])
+  academicYear AcademicYear? @relation(fields: [academicYearId], references: [id])
+  attendance   Attendance[]
+
+  @@map("students")
+}
+
+model Attendance {
+  id             Int            @id @default(autoincrement())
+  studentId      Int            @map("student_id")
+  attendanceDate DateTime       @map("attendance_date") @db.Date
+  attendanceType AttendanceType @map("attendance_type")
+  isPresent      Boolean        @map("is_present")
+  note           String?
+  markedBy       Int?           @map("marked_by")
+  markedAt       DateTime       @default(now()) @map("marked_at")
+
+  // Relations
+  student Student @relation(fields: [studentId], references: [id])
+  marker  User?   @relation("MarkedBy", fields: [markedBy], references: [id])
+
+  @@unique([studentId, attendanceDate, attendanceType])
+  @@map("attendance")
+}
+
+model WeeklyStat {
+  id                Int      @id @default(autoincrement())
+  weekStartDate     DateTime @map("week_start_date") @db.Date
+  weekEndDate       DateTime @map("week_end_date") @db.Date
+  departmentId      Int?     @map("department_id")
+  classId           Int?     @map("class_id")
+  totalStudents     Int      @map("total_students")
+  thursdayAttendance Int     @map("thursday_attendance")
+  sundayAttendance  Int      @map("sunday_attendance")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  // Relations
+  department Department? @relation(fields: [departmentId], references: [id])
+  class      Class?      @relation(fields: [classId], references: [id])
+
+  @@map("weekly_stats")
+}
+
+model ClassTeacher {
+  id        Int      @id @default(autoincrement())
+  classId   Int      @map("class_id")
+  userId    Int      @map("user_id")
+  isPrimary Boolean  @default(false) @map("is_primary") // Giáo viên chính
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  class Class @relation(fields: [classId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, userId])
+  @@map("class_teachers")
+}
+
+enum UserRole {
+  ban_dieu_hanh
+  phan_doan_truong
+  giao_ly_vien
+}
+
+enum AttendanceType {
+  thursday
+  sunday
+}
+
+model PendingUser {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  email        String?  @unique
+  passwordHash String   @map("password_hash")
+  role         UserRole
+  saintName    String?  @map("saint_name")
+  fullName     String   @map("full_name")
+  birthDate    DateTime? @map("birth_date")
+  phoneNumber  String?  @map("phone_number")
+  address      String?
+  departmentId Int?     @map("department_id")
+  status       PendingUserStatus @default(pending)
+  rejectionReason String? @map("rejection_reason")
+  approvedBy   Int?     @map("approved_by")
+  approvedAt   DateTime? @map("approved_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  department   Department? @relation(fields: [departmentId], references: [id])
+  approver     User?       @relation("UserApprover", fields: [approvedBy], references: [id])
+
+  @@map("pending_users")
+}
+
+enum PendingUserStatus {
+  pending
+  approved
+  rejected
+}
+
+enum AlertType {
+  attendance
+  grades
+  system
+}
+
+enum AlertPriority {
+  high
+  medium
+  low
+}
+
+enum AlertStatus {
+  unread
+  read
+  resolved
+}
+
+model AlertRule {
+  id            Int           @id @default(autoincrement())
+  name          String
+  type          AlertType
+  condition     String
+  threshold     Float
+  priority      AlertPriority @default(medium)
+  enabled       Boolean       @default(true)
+  notification  String[]
+  description   String?
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  alerts        SystemAlert[]
+
+  @@map("alert_rules")
+}
+
+model SystemAlert {
+  id          Int           @id @default(autoincrement())
+  type        AlertType
+  priority    AlertPriority
+  title       String
+  message     String
+  status      AlertStatus   @default(unread)
+  source      String        @default("system")
+  data        Json?
+  ruleId      Int?          @map("rule_id")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  rule        AlertRule?    @relation(fields: [ruleId], references: [id])
+
+  @@index([status])
+  @@index([type, priority])
+  @@map("system_alerts")
+}

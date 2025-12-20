@@ -1,5 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// HR Management System - Prisma Schema
+// Face Recognition Attendance System
 
 generator client {
   provider = "prisma-client-js"
@@ -10,274 +10,331 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model AcademicYear {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique // "2024-2025"
-  startDate   DateTime @map("start_date") @db.Date
-  endDate     DateTime @map("end_date") @db.Date
-  totalWeeks  Int      @map("total_weeks")
-  isActive    Boolean  @default(true) @map("is_active")
-  isCurrent   Boolean  @default(false) @map("is_current") // Chỉ có 1 năm học current
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+// ==================== ENUMS ====================
 
-  // Relations
-  students    Student[]
-
-  @@map("academic_years")
+enum Gender {
+  male
+  female
+  other
 }
 
+enum ContractType {
+  full_time
+  part_time
+  contract
+  internship
+}
+
+enum EmploymentStatus {
+  active
+  on_leave
+  terminated
+  resigned
+}
+
+enum UserRole {
+  admin
+  hr_manager
+  department_manager
+  employee
+}
+
+enum AttendanceStatus {
+  present
+  absent
+  late
+  early_leave
+  on_leave
+  holiday
+}
+
+enum LeaveType {
+  annual
+  sick
+  unpaid
+  maternity
+  paternity
+  personal
+}
+
+enum LeaveStatus {
+  pending
+  approved
+  rejected
+  cancelled
+}
+
+enum DeviceType {
+  fingerprint
+  face_recognition
+  mobile_app
+}
+
+enum VerificationMethod {
+  face_recognition
+  manual
+}
+
+enum AssignmentStatus {
+  assigned
+  returned
+  lost
+  damaged
+}
+
+// ==================== MODELS ====================
+
 model Department {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique // 'CHIEN', 'AU', 'THIEU', 'NGHIA'
-  displayName String   @map("display_name")
+  id          Int          @id @default(autoincrement())
+  code        String       @unique
+  name        String
   description String?
-  isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @map("created_at")
+  managerId   Int?         @map("manager_id")
+  parentId    Int?         @map("parent_id")
+  isActive    Boolean      @default(true) @map("is_active")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
 
   // Relations
-  users       User[]
-  classes     Class[]
-  weeklyStats WeeklyStat[]
-  pendingUsers PendingUser[]
+  employees   Employee[]
+  shifts      Shift[]
+  parent      Department?  @relation("DepartmentHierarchy", fields: [parentId], references: [id])
+  children    Department[] @relation("DepartmentHierarchy")
 
   @@map("departments")
 }
 
-model User {
-  id           Int      @id @default(autoincrement())
-  username     String   @unique
-  passwordHash String   @map("password_hash")
-  role         UserRole
-  saintName    String?  @map("saint_name")
-  fullName     String   @map("full_name")
-  avatarUrl    String?  @map("avatar_url")
-  avatarPublicId String? @map("avatar_public_id")
-  birthDate    DateTime? @map("birth_date")
-  phoneNumber  String?  @map("phone_number")
-  address      String?
-  departmentId Int?     @map("department_id")
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+model Employee {
+  id              Int              @id @default(autoincrement())
+  employeeCode    String           @unique @map("employee_code")
+  firstName       String           @map("first_name")
+  lastName        String           @map("last_name")
+  fullName        String           @map("full_name")
+  email           String?          @unique
+  phoneNumber     String?          @map("phone_number")
+  birthDate       DateTime?        @map("birth_date") @db.Date
+  gender          Gender?
+  address         String?
+  avatarUrl       String?          @map("avatar_url")
+  avatarPublicId  String?          @map("avatar_public_id")
+
+  // Face Recognition Data
+  faceDescriptor    Json?          @map("face_descriptor")
+  facePhotoUrl      String?        @map("face_photo_url")
+  facePhotoPublicId String?        @map("face_photo_public_id")
+  faceRegisteredAt  DateTime?      @map("face_registered_at")
+
+  // Employment Info
+  hireDate         DateTime        @map("hire_date") @db.Date
+  contractType     ContractType    @map("contract_type")
+  contractEndDate  DateTime?       @map("contract_end_date") @db.Date
+  position         String
+  departmentId     Int             @map("department_id")
+  managerId        Int?            @map("manager_id")
+
+  // Status
+  employmentStatus EmploymentStatus @default(active) @map("employment_status")
+  isActive         Boolean          @default(true) @map("is_active")
+
+  // Timestamps
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
 
   // Relations
-  department       Department? @relation(fields: [departmentId], references: [id])
-  classTeachers    ClassTeacher[]
-  attendanceMarked Attendance[] @relation("MarkedBy")
-  approvedUsers    PendingUser[] @relation("UserApprover")
+  department         Department         @relation(fields: [departmentId], references: [id])
+  manager            Employee?          @relation("EmployeeManager", fields: [managerId], references: [id])
+  subordinates       Employee[]         @relation("EmployeeManager")
+  user               User?
+  attendances        Attendance[]
+  leaves             Leave[]
+  employeeShifts     EmployeeShift[]
+  deviceAssignments  DeviceAssignment[]
+
+  @@map("employees")
+}
+
+model User {
+  id            Int       @id @default(autoincrement())
+  username      String    @unique
+  passwordHash  String    @map("password_hash")
+  role          UserRole
+  employeeId    Int?      @unique @map("employee_id")
+  isActive      Boolean   @default(true) @map("is_active")
+  lastLogin     DateTime? @map("last_login")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  employee      Employee? @relation(fields: [employeeId], references: [id])
+  leaveApprovals Leave[]  @relation("LeaveApprover")
 
   @@map("users")
 }
 
-model Class {
-  id           Int      @id @default(autoincrement())
-  name         String
-  departmentId Int      @map("department_id")
-  teacherId    Int?     @map("teacher_id")
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+model Shift {
+  id                    Int       @id @default(autoincrement())
+  name                  String
+  code                  String    @unique
+  departmentId          Int?      @map("department_id")
+
+  // Time
+  startTime             String    @map("start_time") // Store as HH:mm format
+  endTime               String    @map("end_time")
+  breakDuration         Int       @map("break_duration") // minutes
+
+  // Working days (array of day numbers: 0=Sunday, 1=Monday, etc.)
+  workingDays           Int[]     @map("working_days")
+
+  // Grace periods
+  lateGracePeriod       Int       @default(15) @map("late_grace_period") // minutes
+  earlyLeaveGracePeriod Int       @default(15) @map("early_leave_grace_period")
+
+  isActive              Boolean   @default(true) @map("is_active")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  department    Department     @relation(fields: [departmentId], references: [id])
-  classTeachers ClassTeacher[]
-  students      Student[]
-  weeklyStats   WeeklyStat[]
+  department    Department?      @relation(fields: [departmentId], references: [id])
+  attendances   Attendance[]
+  employeeShifts EmployeeShift[]
 
-  @@map("classes")
+  @@map("shifts")
 }
 
-model Student {
-  id               Int      @id @default(autoincrement())
-  studentCode      String   @unique @map("student_code")
-  qrCode           String?  @map("qr_code")
-  saintName        String?  @map("saint_name")
-  fullName         String   @map("full_name")
-  avatarUrl        String?  @map("avatar_url")
-  avatarPublicId   String?  @map("avatar_public_id")
-  birthDate        DateTime? @map("birth_date")
-  phoneNumber      String?  @map("phone_number")
-  parentPhone1     String?  @map("parent_phone_1")
-  parentPhone2     String?  @map("parent_phone_2")
-  address          String?
-  note             String?
-  classId          Int      @map("class_id")
-  academicYearId   Int?     @map("academic_year_id")
-  
-  // Điểm danh (attendance scores)
-  thursdayAttendanceCount Int     @default(0) @map("thursday_attendance_count")
-  sundayAttendanceCount   Int     @default(0) @map("sunday_attendance_count")
-  attendanceAverage       Decimal @default(0) @map("attendance_average") @db.Decimal(4,2)
-  
-  // Điểm học tập (study scores)
-  study45Hk1       Decimal @default(0) @map("study_45_hk1") @db.Decimal(3,1)
-  examHk1          Decimal @default(0) @map("exam_hk1") @db.Decimal(3,1)
-  study45Hk2       Decimal @default(0) @map("study_45_hk2") @db.Decimal(3,1)
-  examHk2          Decimal @default(0) @map("exam_hk2") @db.Decimal(3,1)
-  studyAverage     Decimal @default(0) @map("study_average") @db.Decimal(4,2)
-  
-  // Điểm tổng
-  finalAverage     Decimal @default(0) @map("final_average") @db.Decimal(4,2)
-  
-  isActive         Boolean  @default(true) @map("is_active")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+model EmployeeShift {
+  id            Int       @id @default(autoincrement())
+  employeeId    Int       @map("employee_id")
+  shiftId       Int       @map("shift_id")
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   // Relations
-  class        Class         @relation(fields: [classId], references: [id])
-  academicYear AcademicYear? @relation(fields: [academicYearId], references: [id])
-  attendance   Attendance[]
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  shift    Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
 
-  @@map("students")
+  @@unique([employeeId, shiftId, effectiveFrom])
+  @@map("employee_shifts")
 }
 
 model Attendance {
-  id             Int            @id @default(autoincrement())
-  studentId      Int            @map("student_id")
-  attendanceDate DateTime       @map("attendance_date") @db.Date
-  attendanceType AttendanceType @map("attendance_type")
-  isPresent      Boolean        @map("is_present")
-  note           String?
-  markedBy       Int?           @map("marked_by")
-  markedAt       DateTime       @default(now()) @map("marked_at")
+  id            Int              @id @default(autoincrement())
+  employeeId    Int              @map("employee_id")
+  date          DateTime         @db.Date
+  shiftId       Int?             @map("shift_id")
+
+  // Check in/out times
+  checkInTime   DateTime?        @map("check_in_time")
+  checkOutTime  DateTime?        @map("check_out_time")
+
+  // Status
+  status        AttendanceStatus @default(present)
+  isLate        Boolean          @default(false) @map("is_late")
+  isEarlyLeave  Boolean          @default(false) @map("is_early_leave")
+
+  // Working hours
+  workingHours  Decimal?         @map("working_hours") @db.Decimal(5,2)
+  overtimeHours Decimal?         @map("overtime_hours") @db.Decimal(5,2)
+
+  // Face Recognition Check-in
+  checkInPhotoUrl       String?            @map("check_in_photo_url")
+  checkInPhotoPublicId  String?            @map("check_in_photo_public_id")
+  checkInLocation       String?            @map("check_in_location") // "lat,lng"
+  checkInAddress        String?            @map("check_in_address")
+  checkInConfidence     Decimal?           @map("check_in_confidence") @db.Decimal(5,2)
+  checkInMethod         VerificationMethod @default(face_recognition) @map("check_in_method")
+
+  // Face Recognition Check-out
+  checkOutPhotoUrl      String?            @map("check_out_photo_url")
+  checkOutPhotoPublicId String?            @map("check_out_photo_public_id")
+  checkOutLocation      String?            @map("check_out_location")
+  checkOutAddress       String?            @map("check_out_address")
+  checkOutConfidence    Decimal?           @map("check_out_confidence") @db.Decimal(5,2)
+  checkOutMethod        VerificationMethod @default(face_recognition) @map("check_out_method")
+
+  // Device tracking
+  deviceId      Int?             @map("device_id")
+
+  // Manual marking
+  note          String?
+  markedBy      Int?             @map("marked_by")
+  markedAt      DateTime?        @map("marked_at")
+
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
 
   // Relations
-  student Student @relation(fields: [studentId], references: [id])
-  marker  User?   @relation("MarkedBy", fields: [markedBy], references: [id])
+  employee Employee @relation(fields: [employeeId], references: [id])
+  shift    Shift?   @relation(fields: [shiftId], references: [id])
+  device   Device?  @relation(fields: [deviceId], references: [id])
 
-  @@unique([studentId, attendanceDate, attendanceType])
-  @@map("attendance")
-}
-
-model WeeklyStat {
-  id                Int      @id @default(autoincrement())
-  weekStartDate     DateTime @map("week_start_date") @db.Date
-  weekEndDate       DateTime @map("week_end_date") @db.Date
-  departmentId      Int?     @map("department_id")
-  classId           Int?     @map("class_id")
-  totalStudents     Int      @map("total_students")
-  thursdayAttendance Int     @map("thursday_attendance")
-  sundayAttendance  Int      @map("sunday_attendance")
-  createdAt         DateTime @default(now()) @map("created_at")
-
-  // Relations
-  department Department? @relation(fields: [departmentId], references: [id])
-  class      Class?      @relation(fields: [classId], references: [id])
-
-  @@map("weekly_stats")
-}
-
-model ClassTeacher {
-  id        Int      @id @default(autoincrement())
-  classId   Int      @map("class_id")
-  userId    Int      @map("user_id")
-  isPrimary Boolean  @default(false) @map("is_primary") // Giáo viên chính
-  createdAt DateTime @default(now()) @map("created_at")
-
-  // Relations
-  class Class @relation(fields: [classId], references: [id], onDelete: Cascade)
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([classId, userId])
-  @@map("class_teachers")
-}
-
-enum UserRole {
-  ban_dieu_hanh
-  phan_doan_truong
-  giao_ly_vien
-}
-
-enum AttendanceType {
-  thursday
-  sunday
-}
-
-model PendingUser {
-  id           Int      @id @default(autoincrement())
-  username     String   @unique
-  email        String?  @unique
-  passwordHash String   @map("password_hash")
-  role         UserRole
-  saintName    String?  @map("saint_name")
-  fullName     String   @map("full_name")
-  birthDate    DateTime? @map("birth_date")
-  phoneNumber  String?  @map("phone_number")
-  address      String?
-  departmentId Int?     @map("department_id")
-  status       PendingUserStatus @default(pending)
-  rejectionReason String? @map("rejection_reason")
-  approvedBy   Int?     @map("approved_by")
-  approvedAt   DateTime? @map("approved_at")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
-  // Relations
-  department   Department? @relation(fields: [departmentId], references: [id])
-  approver     User?       @relation("UserApprover", fields: [approvedBy], references: [id])
-
-  @@map("pending_users")
-}
-
-enum PendingUserStatus {
-  pending
-  approved
-  rejected
-}
-
-enum AlertType {
-  attendance
-  grades
-  system
-}
-
-enum AlertPriority {
-  high
-  medium
-  low
-}
-
-enum AlertStatus {
-  unread
-  read
-  resolved
-}
-
-model AlertRule {
-  id            Int           @id @default(autoincrement())
-  name          String
-  type          AlertType
-  condition     String
-  threshold     Float
-  priority      AlertPriority @default(medium)
-  enabled       Boolean       @default(true)
-  notification  String[]
-  description   String?
-  createdAt     DateTime      @default(now()) @map("created_at")
-  updatedAt     DateTime      @updatedAt @map("updated_at")
-
-  alerts        SystemAlert[]
-
-  @@map("alert_rules")
-}
-
-model SystemAlert {
-  id          Int           @id @default(autoincrement())
-  type        AlertType
-  priority    AlertPriority
-  title       String
-  message     String
-  status      AlertStatus   @default(unread)
-  source      String        @default("system")
-  data        Json?
-  ruleId      Int?          @map("rule_id")
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt @map("updated_at")
-
-  rule        AlertRule?    @relation(fields: [ruleId], references: [id])
-
+  @@unique([employeeId, date])
+  @@index([date])
   @@index([status])
-  @@index([type, priority])
-  @@map("system_alerts")
+  @@map("attendances")
+}
+
+model Leave {
+  id              Int         @id @default(autoincrement())
+  employeeId      Int         @map("employee_id")
+  leaveType       LeaveType   @map("leave_type")
+  startDate       DateTime    @map("start_date") @db.Date
+  endDate         DateTime    @map("end_date") @db.Date
+  totalDays       Decimal     @map("total_days") @db.Decimal(4,1)
+  reason          String
+  status          LeaveStatus @default(pending)
+
+  // Approval
+  approvedBy      Int?        @map("approved_by")
+  approvedAt      DateTime?   @map("approved_at")
+  rejectedReason  String?     @map("rejected_reason")
+
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  employee Employee @relation(fields: [employeeId], references: [id])
+  approver User?    @relation("LeaveApprover", fields: [approvedBy], references: [id])
+
+  @@index([employeeId, status])
+  @@index([startDate, endDate])
+  @@map("leaves")
+}
+
+model Device {
+  id            Int        @id @default(autoincrement())
+  deviceCode    String     @unique @map("device_code")
+  deviceName    String     @map("device_name")
+  deviceType    DeviceType @map("device_type")
+  location      String?
+  ipAddress     String?    @map("ip_address")
+  specs         Json?      // Camera specs, capabilities
+  isActive      Boolean    @default(true) @map("is_active")
+  lastSync      DateTime?  @map("last_sync")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  attendances  Attendance[]
+  assignments  DeviceAssignment[]
+
+  @@map("devices")
+}
+
+model DeviceAssignment {
+  id           Int              @id @default(autoincrement())
+  employeeId   Int              @map("employee_id")
+  deviceId     Int              @map("device_id")
+  assignedDate DateTime         @map("assigned_date") @db.Date
+  returnDate   DateTime?        @map("return_date") @db.Date
+  status       AssignmentStatus @default(assigned)
+  note         String?
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  // Relations
+  employee Employee @relation(fields: [employeeId], references: [id])
+  device   Device   @relation(fields: [deviceId], references: [id])
+
+  @@map("device_assignments")
 }

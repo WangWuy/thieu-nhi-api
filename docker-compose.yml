@@ -1,83 +1,140 @@
-# Removed version (obsolete in newer Docker Compose)
+# ========================================
+# Docker Compose - HR Management System
+# ========================================
 
 services:
-  # PostgreSQL Database
+  # ============ PostgreSQL Database ============
   postgres:
-    image: postgres:15-alpine
-    container_name: thieunhi-postgres-local
+    image: postgres:16-alpine
+    container_name: hr-postgres
     restart: unless-stopped
     environment:
-      # Thông tin đăng nhập database
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: thieunhi123
-      POSTGRES_DB: thieunhi_local
-      
-      # Cấu hình encoding
+      POSTGRES_DB: hr_system
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
-      
-      # Timezone
       TZ: Asia/Ho_Chi_Minh
     ports:
-      # Host:Container - Có thể truy cập từ localhost:5432
       - "5432:5432"
     volumes:
-      # Persist data ngay cả khi container bị xóa
       - postgres_data:/var/lib/postgresql/data
-      
-      # Mount thư mục init scripts (optional)
       - ./docker/init-scripts:/docker-entrypoint-initdb.d
     networks:
-      - thieunhi-network
+      - hr-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d thieunhi_local"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hr_system"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
 
-  # PgAdmin - Web interface cho PostgreSQL
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: thieunhi-pgadmin
+  # ============ Redis Cache ============
+  redis:
+    image: redis:7-alpine
+    container_name: hr-redis
+    restart: unless-stopped
+    command: redis-server --requirepass thieunhi123 --appendonly yes
+    environment:
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - hr-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ============ API Server ============
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: hr-api
     restart: unless-stopped
     environment:
-      # Thông tin đăng nhập PgAdmin
-      PGADMIN_DEFAULT_EMAIL: admin@thieunhi.local
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://postgres:thieunhi123@postgres:5432/hr_system
+      REDIS_URL: redis://:thieunhi123@redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "3000:3000"
+    volumes:
+      - api_uploads:/app/uploads
+      - api_backups:/app/backups
+      - api_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - hr-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ============ PgAdmin ============
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: hr-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@hr.local
       PGADMIN_DEFAULT_PASSWORD: admin123
-      
-      # Cấu hình PgAdmin
       PGADMIN_CONFIG_SERVER_MODE: 'False'
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
-      
-      # Disable analytics
       PGADMIN_DISABLE_POSTFIX: 'True'
     ports:
-      # Truy cập PgAdmin tại http://localhost:8081
       - "8081:80"
     volumes:
-      # Persist PgAdmin settings
       - pgadmin_data:/var/lib/pgadmin
-      
-      # Pre-configure servers (optional)
       - ./docker/pgadmin-servers.json:/pgadmin4/servers.json
     depends_on:
       postgres:
         condition: service_healthy
     networks:
-      - thieunhi-network
+      - hr-network
 
-# Volumes để persist data
+# ============ Volumes ============
 volumes:
   postgres_data:
     driver: local
-    name: thieunhi_postgres_data
-    
+    name: hr_postgres_data
+
+  redis_data:
+    driver: local
+    name: hr_redis_data
+
+  api_uploads:
+    driver: local
+    name: hr_api_uploads
+
+  api_backups:
+    driver: local
+    name: hr_api_backups
+
+  api_logs:
+    driver: local
+    name: hr_api_logs
+
   pgadmin_data:
     driver: local
-    name: thieunhi_pgadmin_data
+    name: hr_pgadmin_data
 
-# Network cho các containers
+# ============ Networks ============
 networks:
-  thieunhi-network:
+  hr-network:
     driver: bridge
-    name: thieunhi_network
+    name: hr_network

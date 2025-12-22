@@ -178,15 +178,115 @@ const searchLimiter = rateLimit({
     }
 });
 
+// Attendance check-in limiter - Stricter cho check-in để prevent spam
+const attendanceCheckInLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 phút
+    max: 5, // Chỉ 5 lần check-in mỗi phút per user
+    message: {
+        error: 'Check-in Rate Limit',
+        message: 'Quá nhiều lần check-in, vui lòng thử lại sau 1 phút.'
+    },
+    keyGenerator: (req) => req.user?.userId || req.ip,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+        res.status(429).json({
+            error: 'Check-in Rate Limit Exceeded',
+            message: 'Quá nhiều lần check-in, vui lòng thử lại sau 1 phút.',
+            retryAfter: Math.round(req.rateLimit.resetTime / 1000)
+        });
+    }
+});
+
+// Leave request limiter
+const leaveRequestLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 giờ
+    max: 10, // 10 leave requests per hour
+    message: {
+        error: 'Leave Request Limit',
+        message: 'Quá nhiều đơn nghỉ phép được tạo, vui lòng thử lại sau.'
+    },
+    keyGenerator: (req) => req.user?.userId || req.ip,
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+// Report export limiter - Prevent abuse of heavy operations
+const reportExportLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 phút
+    max: 20, // 20 exports per 15 minutes
+    message: {
+        error: 'Export Rate Limit',
+        message: 'Quá nhiều lần export báo cáo, vui lòng thử lại sau.'
+    },
+    keyGenerator: (req) => req.user?.userId || req.ip,
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+// Face recognition verification limiter
+const faceVerificationLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 phút
+    max: 10, // 10 face verifications per minute
+    message: {
+        error: 'Face Verification Limit',
+        message: 'Quá nhiều lần xác thực khuôn mặt, vui lòng thử lại sau.'
+    },
+    keyGenerator: (req) => req.user?.userId || req.ip,
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+// Shift assignment limiter
+const shiftAssignmentLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000, // 5 phút
+    max: 50, // 50 shift assignments per 5 minutes
+    message: {
+        error: 'Shift Assignment Limit',
+        message: 'Quá nhiều lần phân ca, vui lòng chậm lại.'
+    },
+    keyGenerator: (req) => req.user?.userId || req.ip,
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+// Department operations limiter
+const departmentLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000, // 5 phút
+    max: 30, // 30 operations per 5 minutes
+    message: {
+        error: 'Department Operation Limit',
+        message: 'Quá nhiều thao tác trên phòng ban, vui lòng chậm lại.'
+    },
+    keyGenerator: (req) => req.user?.userId || req.ip,
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
 // Export tất cả limiters
 module.exports = {
+    // General
     generalLimiter,
     authLimiter,
     apiLimiter,
     strictLimiter,
+
+    // File operations
     uploadLimiter,
+
+    // Account operations
     passwordResetLimiter,
     createAccountLimiter,
+
+    // HR specific
     attendanceLimiter,
+    attendanceCheckInLimiter,
+    leaveRequestLimiter,
+    reportExportLimiter,
+    faceVerificationLimiter,
+    shiftAssignmentLimiter,
+    departmentLimiter,
+
+    // Search
     searchLimiter
 };

@@ -1,704 +1,170 @@
 const express = require('express');
-const authController = require('../controllers/authController');
-const studentController = require('../controllers/studentController');
-const attendanceController = require('../controllers/attendanceController');
-const classController = require('../controllers/classController');
-const departmentController = require('../controllers/departmentController');
-const userController = require('../controllers/userController');
-const importController = require('../controllers/importController');
-const dashboardController = require('../controllers/dashboardController');
-const academicYearController = require('../controllers/academicYearController');
-const ScoreService = require('../services/scoreService');
-const reportsController = require('../controllers/reportsController');
-const importUserController = require('../controllers/importUserController');
-const importAttendanceController = require('../controllers/importAttendanceController');
-const pendingUserController = require('../controllers/pendingUserController');
-const backupController = require('../controllers/backupController');
-const alertController = require('../controllers/alertController');
-const { uploadUserAvatar, uploadStudentAvatar } = require('../config/cloudinary');
+const router = express.Router();
 
+// Import controllers
+const authController = require('../controllers/authController');
+const employeeController = require('../controllers/employeeController');
+const attendanceController = require('../controllers/attendanceController');
+const shiftController = require('../controllers/shiftController');
+const leaveController = require('../controllers/leaveController');
+const deviceController = require('../controllers/deviceController');
+const departmentController = require('../controllers/departmentController');
+const dashboardController = require('../controllers/dashboardController');
+const reportController = require('../controllers/reportController');
+const userController = require('../controllers/userController');
+// const backupController = require('../controllers/backupController'); // TODO: Implement backup controller
+const alertController = require('../controllers/alertController');
+
+// Import middleware
 const { verifyToken, requireRole, requireAdmin } = require('../middleware/auth');
 
-// Import validation rules
-const {
-    authValidation,
-    userValidation,
-    pendingUserValidation,
-    studentValidation,
-    classValidation,
-    attendanceValidation,
-    queryValidation
-} = require('../middleware/validation');
+// Import Cloudinary config
+const { uploadEmployeeAvatar, uploadFacePhoto, uploadAttendancePhoto } = require('../config/cloudinary');
 
 // Import rate limiters
 const {
-    authLimiter,
-    apiLimiter,
-    strictLimiter,
-    passwordResetLimiter,
-    createAccountLimiter,
-    attendanceLimiter,
-    searchLimiter
+  authLimiter,
+  apiLimiter,
+  strictLimiter,
+  passwordResetLimiter,
+  createAccountLimiter,
+  attendanceLimiter
 } = require('../middleware/rateLimiter');
 
-const router = express.Router();
-
-router.post('/classes/:classId/fix-scores',
-    strictLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    studentController.fixClassScores
-);
-
 // ==================== AUTH ROUTES ====================
-router.post('/auth/login',
-    authLimiter,
-    authValidation.login,
-    authController.login
-);
+router.post('/auth/login', authLimiter, authController.login);
+router.post('/auth/logout', apiLimiter, verifyToken, authController.logout);
+router.get('/auth/me', apiLimiter, verifyToken, authController.me);
+router.post('/auth/change-password', passwordResetLimiter, verifyToken, authController.changePassword);
 
-router.post('/auth/logout',
-    apiLimiter,
-    verifyToken,
-    authController.logout
-);
+// ==================== EMPLOYEE ROUTES ====================
+router.get('/employees', apiLimiter, verifyToken, employeeController.getEmployees);
+router.get('/employees/profile', apiLimiter, verifyToken, employeeController.getEmployeeProfile);
+router.put('/employees/profile', apiLimiter, verifyToken, employeeController.updateEmployeeProfile);
+router.get('/employees/:id', apiLimiter, verifyToken, employeeController.getEmployeeById);
+router.post('/employees', createAccountLimiter, verifyToken, requireRole(['admin', 'hr_manager']), employeeController.createEmployee);
+router.put('/employees/:id', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), employeeController.updateEmployee);
+router.delete('/employees/:id', strictLimiter, verifyToken, requireAdmin, employeeController.deleteEmployee);
+router.post('/employees/:id/restore', strictLimiter, verifyToken, requireAdmin, employeeController.restoreEmployee);
 
-router.get('/auth/me',
-    apiLimiter,
-    verifyToken,
-    authController.me
-);
+// Employee avatar routes
+router.post('/employees/:id/avatar', apiLimiter, verifyToken, uploadEmployeeAvatar.single('avatar'), employeeController.uploadAvatar);
+router.delete('/employees/:id/avatar', apiLimiter, verifyToken, employeeController.deleteAvatar);
 
-router.post('/auth/change-password',
-    passwordResetLimiter,
-    verifyToken,
-    authValidation.changePassword,
-    authController.changePassword
-);
-
-// ==================== USER ROUTES ====================
-router.get('/users',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    queryValidation.pagination,
-    queryValidation.search,
-    userController.getUsers
-);
-
-router.get('/users/:id',
-    apiLimiter,
-    verifyToken,
-    userController.getUserById
-);
-
-router.post('/users',
-    createAccountLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    userValidation.create,
-    userController.createUser
-);
-
-router.put('/users/:id',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    userValidation.update,
-    userController.updateUser
-);
-
-router.post('/users/:id/reset-password',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    userValidation.resetPassword,
-    userController.resetPassword
-);
-
-router.put('/users/:id/deactivate',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    userController.deactivateUser
-);
-
-router.put('/users/:id/activate',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    userController.activateUser
-);
-
-router.put('/users/:id/toggle-status',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    userValidation.toggleStatus,
-    userController.toggleUserStatus
-);
-
-router.put('/students/:id/restore',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    studentController.restoreStudent
-);
-
-router.get('/teachers',
-    apiLimiter,
-    verifyToken,
-    queryValidation.search,
-    userController.getTeachers
-);
-
-// USER AVATAR ROUTES
-router.post('/users/:id/avatar',
-    apiLimiter,
-    verifyToken,
-    uploadUserAvatar.single('avatar'),
-    userController.uploadAvatar
-);
-
-router.delete('/users/:id/avatar',
-    apiLimiter,
-    verifyToken,
-    userController.deleteAvatar
-);
-
-// ==================== DEPARTMENT ROUTES ====================
-router.get('/departments',
-    apiLimiter,
-    verifyToken,
-    departmentController.getDepartments
-);
-
-router.get('/departments/stats',
-    apiLimiter,
-    verifyToken,
-    departmentController.getDepartmentStats
-);
-
-// ==================== CLASS ROUTES ====================
-router.get('/classes',
-    apiLimiter,
-    verifyToken,
-    queryValidation.search,
-    classController.getClasses
-);
-
-router.get('/classes/:id',
-    apiLimiter,
-    verifyToken,
-    classController.getClassById
-);
-
-router.post('/classes',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    classValidation.create,
-    classController.createClass
-);
-
-router.put('/classes/:id',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    classValidation.update,
-    classController.updateClass
-);
-
-router.delete('/classes/:id',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    classController.deleteClass
-);
-
-router.post('/classes/:classId/teachers',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    classValidation.assignTeacher,
-    classController.assignTeacher
-);
-
-router.delete('/classes/:classId/teachers/:userId',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    classController.removeTeacher
-);
-
-// ==================== STUDENT ROUTES ====================
-router.get('/students',
-    searchLimiter, // Có thể search nhiều nên dùng search limiter
-    verifyToken,
-    queryValidation.pagination,
-    queryValidation.search,
-    studentController.getStudents
-);
-
-router.get('/students/:id',
-    apiLimiter,
-    verifyToken,
-    studentController.getStudentById
-);
-
-router.post('/students',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-    studentValidation.create,
-    studentController.createStudent
-);
-
-router.put('/students/:id',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-    studentValidation.update,
-    studentController.updateStudent
-);
-
-router.delete('/students/:id',
-    strictLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    studentController.deleteStudent
-);
-
-router.get('/classes/:classId/students',
-    apiLimiter,
-    verifyToken,
-    studentController.getStudentsByClass
-);
-
-// STUDENT AVATAR ROUTES
-router.post('/students/:id/avatar',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-    uploadStudentAvatar.single('avatar'),
-    studentController.uploadAvatar
-);
-
-router.delete('/students/:id/avatar',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-    studentController.deleteAvatar
-);
+// Employee face registration routes
+router.post('/employees/:id/face/register', apiLimiter, verifyToken, uploadFacePhoto.single('facePhoto'), employeeController.registerFace);
+router.put('/employees/:id/face/update', apiLimiter, verifyToken, uploadFacePhoto.single('facePhoto'), employeeController.updateFace);
+router.delete('/employees/:id/face', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), employeeController.deleteFaceData);
+router.get('/employees/:id/face/status', apiLimiter, verifyToken, employeeController.getFaceStatus);
 
 // ==================== ATTENDANCE ROUTES ====================
-router.get('/classes/:classId/attendance',
-    apiLimiter,
-    verifyToken,
-    attendanceValidation.getByClass,
-    attendanceController.getAttendanceByClass
-);
+router.post('/attendance/check-in', attendanceLimiter, verifyToken, uploadAttendancePhoto.single('photo'), attendanceController.checkIn);
+router.post('/attendance/check-out', attendanceLimiter, verifyToken, uploadAttendancePhoto.single('photo'), attendanceController.checkOut);
+router.get('/attendance/today', apiLimiter, verifyToken, attendanceController.getTodayAttendance);
+router.get('/attendance/employee/:id', apiLimiter, verifyToken, attendanceController.getAttendanceByEmployee);
+router.get('/attendance/department/:id', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager', 'department_manager']), attendanceController.getAttendanceByDepartment);
+router.get('/attendance/stats', apiLimiter, verifyToken, attendanceController.getAttendanceStats);
+router.get('/attendance/:id/photos', apiLimiter, verifyToken, attendanceController.getVerificationPhotos);
+router.post('/attendance/manual', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), attendanceController.markManualAttendance);
+router.put('/attendance/:id', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), attendanceController.updateAttendance);
+router.delete('/attendance/:id', strictLimiter, verifyToken, requireAdmin, attendanceController.deleteAttendance);
 
-router.get('/attendance/stats',
-    apiLimiter,
-    verifyToken,
-    queryValidation.dateRange,
-    attendanceController.getAttendanceStats
-);
+// ==================== SHIFT ROUTES ====================
+router.get('/shifts', apiLimiter, verifyToken, shiftController.getShifts);
+router.get('/shifts/employee/:employeeId', apiLimiter, verifyToken, shiftController.getEmployeeShifts);
+router.get('/shifts/:id', apiLimiter, verifyToken, shiftController.getShiftById);
+router.post('/shifts', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), shiftController.createShift);
+router.put('/shifts/:id', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), shiftController.updateShift);
+router.delete('/shifts/:id', strictLimiter, verifyToken, requireAdmin, shiftController.deleteShift);
+router.post('/shifts/:id/assign', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), shiftController.assignEmployeeToShift);
+router.delete('/shifts/:id/unassign/:employeeId', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), shiftController.removeEmployeeFromShift);
 
-router.get('/attendance/trend',
-    apiLimiter,
-    verifyToken,
-    queryValidation.dateRange,
-    attendanceController.getAttendanceTrend
-);
+// ==================== LEAVE ROUTES ====================
+router.get('/leaves', apiLimiter, verifyToken, leaveController.getLeaveRequests);
+router.get('/leaves/stats', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), leaveController.getLeaveStats);
+router.get('/leaves/:id', apiLimiter, verifyToken, leaveController.getLeaveById);
+router.post('/leaves', apiLimiter, verifyToken, leaveController.requestLeave);
+router.put('/leaves/:id/approve', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager', 'department_manager']), leaveController.approveLeave);
+router.put('/leaves/:id/reject', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager', 'department_manager']), leaveController.rejectLeave);
+router.delete('/leaves/:id', apiLimiter, verifyToken, leaveController.cancelLeave);
+router.get('/employees/:id/leaves', apiLimiter, verifyToken, leaveController.getEmployeeLeaves);
+router.get('/employees/:id/leave-balance', apiLimiter, verifyToken, leaveController.getLeaveBalance);
 
-router.post('/attendance/universal',
-    attendanceLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-    attendanceValidation.universal,
-    attendanceController.universalAttendance
-);
+// ==================== DEVICE ROUTES ====================
+router.get('/devices', apiLimiter, verifyToken, deviceController.getDevices);
+router.get('/devices/:id', apiLimiter, verifyToken, deviceController.getDeviceById);
+router.get('/devices/:id/history', apiLimiter, verifyToken, deviceController.getDeviceHistory);
+router.post('/devices', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), deviceController.createDevice);
+router.put('/devices/:id', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), deviceController.updateDevice);
+router.delete('/devices/:id', strictLimiter, verifyToken, requireAdmin, deviceController.deleteDevice);
+router.post('/devices/:id/sync', apiLimiter, verifyToken, deviceController.syncDevice);
+router.post('/devices/:id/assign', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), deviceController.assignDevice);
+router.post('/devices/:id/return', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), deviceController.returnDevice);
 
-router.get('/students/:id/attendance/history',
-    apiLimiter,
-    verifyToken,
-    attendanceValidation.getStudentHistory,
-    attendanceController.getStudentAttendanceHistory
-);
-
-router.get('/students/:id/attendance/stats',
-    apiLimiter,
-    verifyToken,
-    attendanceValidation.getStudentStats,
-    attendanceController.getStudentAttendanceStats
-);
-
-// ✅ Get today's attendance status for multiple students
-router.post('/attendance/today-status',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-    attendanceValidation.todayStatus, // ✅ Use validation from file
-    attendanceController.getTodayAttendanceStatus
-);
-
-router.post('/attendance/undo',
-    attendanceLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-    attendanceValidation.universal, // Có thể dùng lại validation
-    attendanceController.undoAttendance
-);
-
-router.post('/import/attendance/mark-absent',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-    importAttendanceController.markAbsentRemaining
-);
-
-router.post('/import/attendance',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-    importAttendanceController.uploadExcel,
-    importAttendanceController.importAttendance
-);
-
-router.post('/import/attendance/preview',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-    importAttendanceController.uploadExcel,
-    importAttendanceController.previewAttendance
-);
+// ==================== DEPARTMENT ROUTES ====================
+router.get('/departments', apiLimiter, verifyToken, departmentController.getDepartments);
+router.get('/departments/hierarchy', apiLimiter, verifyToken, departmentController.getDepartmentHierarchy);
+router.get('/departments/:id', apiLimiter, verifyToken, departmentController.getDepartmentById);
+router.get('/departments/:id/employees', apiLimiter, verifyToken, departmentController.getDepartmentEmployees);
+router.get('/departments/:id/stats', apiLimiter, verifyToken, departmentController.getDepartmentStats);
+router.post('/departments', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), departmentController.createDepartment);
+router.put('/departments/:id', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), departmentController.updateDepartment);
+router.delete('/departments/:id', strictLimiter, verifyToken, requireAdmin, departmentController.deleteDepartment);
 
 // ==================== DASHBOARD ROUTES ====================
-router.get('/dashboard/stats',
-    apiLimiter,
-    verifyToken,
-    dashboardController.getDashboardStats
-);
+router.get('/dashboard/overview', apiLimiter, verifyToken, dashboardController.getOverviewStats);
+router.get('/dashboard/attendance-summary', apiLimiter, verifyToken, dashboardController.getAttendanceSummary);
+router.get('/dashboard/department-stats', apiLimiter, verifyToken, dashboardController.getDepartmentStats);
+router.get('/dashboard/leave-stats', apiLimiter, verifyToken, dashboardController.getLeaveStats);
+router.get('/dashboard/recent-activities', apiLimiter, verifyToken, dashboardController.getRecentActivities);
+router.get('/dashboard/upcoming-birthdays', apiLimiter, verifyToken, dashboardController.getUpcomingBirthdays);
+router.get('/dashboard/contract-expirations', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), dashboardController.getContractExpirations);
 
-router.get('/dashboard/quick-counts',
-    apiLimiter,
-    verifyToken,
-    dashboardController.getQuickCounts
-);
+// ==================== REPORT ROUTES ====================
+router.get('/reports/attendance/monthly', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), reportController.getMonthlyAttendanceReport);
+router.get('/reports/attendance/department', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager', 'department_manager']), reportController.getDepartmentAttendanceReport);
+router.get('/reports/attendance/employee/:id', apiLimiter, verifyToken, reportController.getEmployeeAttendanceReport);
+router.get('/reports/leave', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), reportController.getLeaveReport);
+router.get('/reports/overtime', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), reportController.getOvertimeReport);
+router.post('/reports/export', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), reportController.exportReport);
 
-router.get('/dashboard/weekly-attendance-trend',
-    apiLimiter,
-    verifyToken,
-    dashboardController.getWeeklyAttendanceTrend
-);
-
-router.get('/dashboard/department-classes-attendance',
-    apiLimiter,
-    verifyToken,
-    dashboardController.getDepartmentClassesAttendance
-);
-
-// ==================== IMPORT/EXPORT ROUTES ====================
-// Import students (supports both Excel file and JSON)
-router.post('/import/students',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    importController.uploadExcel,
-    importController.importStudents
-);
-
-// Import users (supports both Excel file and JSON)
-router.post('/import/users',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh']),
-    importUserController.uploadExcel,
-    importUserController.importUsers
-);
-
-// ==================== ACADEMIC YEAR ROUTES ====================
-router.get('/academic-years',
-    apiLimiter,
-    verifyToken,
-    academicYearController.getAcademicYears
-);
-
-router.get('/academic-years/current',
-    apiLimiter,
-    verifyToken,
-    academicYearController.getCurrentAcademicYear
-);
-
-router.post('/academic-years',
-    apiLimiter,
-    verifyToken,
-    requireAdmin,
-    // academicYearValidation.create, // Tạo validation sau
-    academicYearController.createAcademicYear
-);
-
-router.put('/academic-years/:id',
-    apiLimiter,
-    verifyToken,
-    requireAdmin,
-    // academicYearValidation.update,
-    academicYearController.updateAcademicYear
-);
-
-router.post('/academic-years/:id/set-current',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    academicYearController.setCurrentAcademicYear
-);
-
-router.delete('/academic-years/:id',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    academicYearController.deleteAcademicYear
-);
-
-router.get('/academic-years/:id/stats',
-    apiLimiter,
-    verifyToken,
-    academicYearController.getAcademicYearStats
-);
-
-// ==================== SCORE MANAGEMENT ROUTES ====================
-router.put('/students/:id/scores',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-    // scoreValidation.update, // Tạo validation sau
-    async (req, res) => {
-        try {
-            const { id } = req.params;
-            const updatedStudent = await ScoreService.updateStudentScores(parseInt(id), req.body);
-            res.json(updatedStudent);
-        } catch (error) {
-            console.error('Update scores error:', error);
-            res.status(500).json({ error: error.message });
-        }
-    }
-);
-
-router.post('/academic-years/:id/recalculate-scores',
-    strictLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    async (req, res) => {
-        try {
-            const { id } = req.params;
-            const result = await ScoreService.recalculateAcademicYearScores(parseInt(id));
-            res.json(result);
-        } catch (error) {
-            console.error('Recalculate scores error:', error);
-            res.status(500).json({ error: error.message });
-        }
-    }
-);
-
-router.get('/classes/:id/score-stats',
-    apiLimiter,
-    verifyToken,
-    async (req, res) => {
-        try {
-            const { id } = req.params;
-            const stats = await ScoreService.getClassScoreStats(parseInt(id));
-            res.json(stats);
-        } catch (error) {
-            console.error('Get class score stats error:', error);
-            res.status(500).json({ error: error.message });
-        }
-    }
-);
-
-router.get('/students/:id/score-details',
-    apiLimiter,
-    verifyToken,
-    studentController.getStudentScoreDetails
-);
-
-router.post('/students/bulk-update-scores',
-    strictLimiter, // Bulk operations need stricter limits
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    studentController.bulkUpdateScores
-);
-
-// ==================== REPORTS ROUTES ====================
-router.get('/reports/attendance',
-    apiLimiter,
-    verifyToken,
-    // requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    queryValidation.dateRange,
-    reportsController.getAttendanceReport
-);
-
-router.get('/reports/student-scores',
-    apiLimiter,
-    verifyToken,
-    // requireRole(['ban_dieu_hanh', 'phan_doan_truong']),
-    reportsController.getStudentScores
-);
-
-// ==================== PENDING USER ROUTES ====================
-// Đăng ký tài khoản từ mobile (public - không cần auth)
-router.post('/register',
-    createAccountLimiter,
-    pendingUserValidation.register,
-    pendingUserController.registerUser
-);
-
-// Lấy danh sách pending users (chỉ admin)
-router.get('/pending-users',
-    apiLimiter,
-    verifyToken,
-    requireAdmin,
-    queryValidation.pagination,
-    queryValidation.search,
-    pendingUserController.getPendingUsers
-);
-
-// Lấy chi tiết pending user (chỉ admin)
-router.get('/pending-users/:id',
-    apiLimiter,
-    verifyToken,
-    requireAdmin,
-    pendingUserController.getPendingUserById
-);
-
-// Phê duyệt đăng ký (chỉ admin)
-router.put('/pending-users/:id/approve',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    pendingUserValidation.approve,
-    pendingUserController.approveUser
-);
-
-// Từ chối đăng ký (chỉ admin)
-router.put('/pending-users/:id/reject',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    pendingUserValidation.reject,
-    pendingUserController.rejectUser
-);
-
-// Xóa pending user (chỉ admin)
-router.delete('/pending-users/:id',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    pendingUserController.deletePendingUser
-);
-
-// Thống kê pending users (chỉ admin)
-router.get('/pending-users/stats',
-    apiLimiter,
-    verifyToken,
-    requireAdmin,
-    pendingUserController.getPendingUserStats
-);
+// ==================== USER ROUTES (Keep for account management) ====================
+router.get('/users', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), userController.getUsers);
+router.get('/users/:id', apiLimiter, verifyToken, userController.getUserById);
+router.post('/users', createAccountLimiter, verifyToken, requireAdmin, userController.createUser);
+router.put('/users/:id', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), userController.updateUser);
+router.put('/users/:id/deactivate', strictLimiter, verifyToken, requireAdmin, userController.deactivateUser);
+router.put('/users/:id/activate', strictLimiter, verifyToken, requireAdmin, userController.activateUser);
+router.put('/users/:id/reset-password', passwordResetLimiter, verifyToken, requireAdmin, userController.resetPassword);
 
 // ==================== BACKUP ROUTES ====================
-router.get('/backup/excel',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    backupController.exportExcel
-);
-
-router.get('/backup/dump',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    backupController.exportDump
-);
+// TODO: Implement backup controller methods
+// router.post('/backup/create', strictLimiter, verifyToken, requireAdmin, backupController.createBackup);
+// router.get('/backup/list', apiLimiter, verifyToken, requireAdmin, backupController.getBackups);
+// router.post('/backup/restore', strictLimiter, verifyToken, requireAdmin, backupController.restoreBackup);
 
 // ==================== ALERT ROUTES ====================
-router.get('/alerts',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-    alertController.getAlerts
-);
+router.get('/alerts', apiLimiter, verifyToken, alertController.getAlerts);
+router.post('/alerts', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), alertController.createAlert);
+router.post('/alerts/:id/read', apiLimiter, verifyToken, alertController.markRead);
+router.post('/alerts/:id/resolved', apiLimiter, verifyToken, requireRole(['admin', 'hr_manager']), alertController.markResolved);
+router.delete('/alerts/:id', strictLimiter, verifyToken, requireAdmin, alertController.deleteAlert);
 
-router.post('/alerts',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    alertController.createAlert
-);
+// ==================== HEALTH CHECK ====================
+router.get('/health', (req, res) => {
+  res.json({
+    success: true,
+    message: 'HR Management System API is running',
+    timestamp: new Date().toISOString()
+  });
+});
 
-router.put('/alerts/:id/read',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-    alertController.markRead
-);
-
-router.put('/alerts/:id/resolve',
-    apiLimiter,
-    verifyToken,
-    requireRole(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien']),
-    alertController.markResolved
-);
-
-router.delete('/alerts/:id',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    alertController.deleteAlert
-);
-
-// Evaluate rules to generate alerts from current data
-router.post('/alerts/evaluate',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    alertController.evaluateRules
-);
-
-// Alert Rules (admin)
-router.get('/alert-rules',
-    apiLimiter,
-    verifyToken,
-    requireAdmin,
-    alertController.getRules
-);
-
-router.post('/alert-rules',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    alertController.createRule
-);
-
-router.put('/alert-rules/:id',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    alertController.updateRule
-);
-
-router.put('/alert-rules/:id/toggle',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    alertController.toggleRule
-);
-
-router.delete('/alert-rules/:id',
-    strictLimiter,
-    verifyToken,
-    requireAdmin,
-    alertController.deleteRule
-);
+// ==================== 404 Handler ====================
+router.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'API endpoint not found'
+  });
+});
 
 module.exports = router;

@@ -1,12 +1,13 @@
 {
-  "name": "thieu-nhi-backend",
-  "version": "1.0.0",
-  "main": "index.js",
+  "name": "hr-management-api",
+  "version": "2.0.0",
+  "description": "HR Management & Attendance System with Face Recognition",
+  "main": "server.js",
   "scripts": {
-    "test:import": "node test-import-system.js",
     "dev": "nodemon server.js",
     "start": "node server.js",
     "test": "echo \"Error: no test specified\" && exit 1",
+
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev --name auto-migration",
@@ -15,29 +16,49 @@
     "db:seed": "node prisma/seed.js",
     "db:reset": "prisma migrate reset --force",
     "db:status": "prisma migrate status",
+
+    "docker:build": "docker-compose build",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
+    "docker:start": "docker-compose start",
+    "docker:stop": "docker-compose stop",
     "docker:restart": "docker-compose restart",
-    "docker:logs": "docker-compose logs -f",
-    "docker:logs:postgres": "docker-compose logs -f postgres",
-    "docker:logs:pgadmin": "docker-compose logs -f pgadmin",
     "docker:ps": "docker-compose ps",
-    "docker:clean": "docker-compose down -v --remove-orphans",
     "docker:rebuild": "docker-compose down && docker-compose up -d --build",
-    "local:env": "cp .env.local .env",
+    "docker:clean": "docker-compose down -v --remove-orphans",
+    "docker:prune": "docker system prune -af --volumes",
+
+    "docker:logs": "docker-compose logs -f",
+    "docker:logs:api": "docker-compose logs -f api",
+    "docker:logs:postgres": "docker-compose logs -f postgres",
+    "docker:logs:redis": "docker-compose logs -f redis",
+    "docker:logs:pgadmin": "docker-compose logs -f pgadmin",
+
+    "docker:exec:api": "docker-compose exec api sh",
+    "docker:exec:postgres": "docker-compose exec postgres psql -U postgres -d hr_system",
+    "docker:exec:redis": "docker-compose exec redis redis-cli -a thieunhi123",
+
+    "docker:migrate": "docker-compose exec api npx prisma migrate deploy",
+    "docker:seed": "docker-compose exec api npm run db:seed",
+    "docker:studio": "docker-compose exec api npx prisma studio",
+
+    "local:env": "cp .env.development .env",
     "local:setup": "npm run db:generate && npm run db:push && npm run db:seed",
     "local:dev": "npm run docker:up && npm run local:wait && npm run local:setup && npm run dev",
-    "local:wait": "node -e \"console.log('⏳ Waiting for database...'); setTimeout(() => console.log('✅ Ready!'), 5000)\"",
+    "local:wait": "node -e \"console.log('⏳ Waiting for services...'); setTimeout(() => console.log('✅ Ready!'), 10000)\"",
     "local:reset": "npm run db:reset && npm run db:seed",
     "local:fresh": "npm run docker:clean && npm run docker:up && npm run local:wait && npm run local:setup",
     "local:stop": "npm run docker:down",
+
     "prod:deploy": "npm run db:migrate:deploy && npm start",
     "prod:status": "prisma migrate status"
   },
-  "keywords": [],
+  "keywords": ["hr", "attendance", "face-recognition", "employee-management"],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
   "dependencies": {
     "@prisma/client": "^6.12.0",
     "axios": "^1.11.0",

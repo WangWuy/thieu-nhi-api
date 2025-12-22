@@ -1,13 +1,21 @@
 const { body, param, query, validationResult } = require('express-validator');
 
-// Middleware để check kết quả validation
+/**
+ * Validation Middleware for HR Management System
+ * Uses express-validator for request validation
+ */
+
+/**
+ * Handle validation errors
+ */
 const handleValidationErrors = (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
         return res.status(400).json({
-            error: 'Dữ liệu không hợp lệ',
-            details: errors.array().map(err => ({
-                field: err.path,
+            error: 'Validation Error',
+            message: 'Dữ liệu không hợp lệ',
+            errors: errors.array().map(err => ({
+                field: err.path || err.param,
                 message: err.msg,
                 value: err.value
             }))
@@ -16,867 +24,530 @@ const handleValidationErrors = (req, res, next) => {
     next();
 };
 
-// Auth validation rules
-const authValidation = {
-    login: [
-        body('username')
-            .notEmpty()
-            .withMessage('Username là bắt buộc')
-            .isLength({ min: 3 })
-            .withMessage('Username phải ít nhất 3 ký tự'),
-        body('password')
-            .notEmpty()
-            .withMessage('Password là bắt buộc')
-            .isLength({ min: 6 })
-            .withMessage('Password phải ít nhất 6 ký tự'),
-        handleValidationErrors
-    ],
+// ============================================
+// Employee Validation
+// ============================================
 
-    changePassword: [
-        body('currentPassword')
-            .notEmpty()
-            .withMessage('Mật khẩu hiện tại là bắt buộc'),
-        body('newPassword')
-            .isLength({ min: 6 })
-            .withMessage('Mật khẩu mới phải ít nhất 6 ký tự'),
-        handleValidationErrors
-    ]
-};
-
-// User validation rules
-const userValidation = {
+const employeeValidation = {
     create: [
-        body('username')
-            .notEmpty()
-            .withMessage('Username là bắt buộc')
-            .isLength({ min: 3, max: 50 })
-            .withMessage('Username phải từ 3-50 ký tự')
-            .matches(/^[a-zA-Z0-9_]+$/)
-            .withMessage('Username chỉ được chứa chữ, số và dấu gạch dưới'),
-        body('password')
-            .isLength({ min: 6 })
-            .withMessage('Password phải ít nhất 6 ký tự'),
-        body('role')
-            .isIn(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien'])
-            .withMessage('Role không hợp lệ'),
-        body('fullName')
-            .notEmpty()
-            .withMessage('Họ tên là bắt buộc')
-            .isLength({ min: 2, max: 100 })
-            .withMessage('Họ tên phải từ 2-100 ký tự'),
-        body('saintName')
+        body('firstName')
+            .trim()
+            .notEmpty().withMessage('Tên không được để trống')
+            .isLength({ min: 2, max: 50 }).withMessage('Tên phải từ 2-50 ký tự'),
+
+        body('lastName')
+            .trim()
+            .notEmpty().withMessage('Họ không được để trống')
+            .isLength({ min: 2, max: 50 }).withMessage('Họ phải từ 2-50 ký tự'),
+
+        body('email')
+            .trim()
+            .notEmpty().withMessage('Email không được để trống')
+            .isEmail().withMessage('Email không hợp lệ')
+            .normalizeEmail(),
+
+        body('phone')
             .optional()
-            .isLength({ max: 50 })
-            .withMessage('Tên thánh không được quá 50 ký tự'),
-        body('phoneNumber')
+            .trim()
+            .matches(/^0\d{9,10}$/).withMessage('Số điện thoại không hợp lệ (phải bắt đầu bằng 0 và có 10-11 số)'),
+
+        body('dateOfBirth')
             .optional()
-            .matches(/^(\+84|0)[3|5|7|8|9][0-9]{8}$/)
-            .withMessage('Số điện thoại không hợp lệ (VN format)'),
-        body('birthDate')
-            .optional()
-            .isISO8601()
-            .withMessage('Ngày sinh không hợp lệ')
+            .isISO8601().withMessage('Ngày sinh không hợp lệ')
             .custom((value) => {
-                const birthDate = new Date(value);
-                const today = new Date();
-                const age = today.getFullYear() - birthDate.getFullYear();
-                if (age < 16 || age > 80) {
-                    throw new Error('Tuổi phải từ 16-80');
+                const age = new Date().getFullYear() - new Date(value).getFullYear();
+                if (age < 18 || age > 100) {
+                    throw new Error('Tuổi phải từ 18-100');
                 }
                 return true;
             }),
-        body('departmentId')
+
+        body('gender')
             .optional()
-            .isInt({ min: 1 })
-            .withMessage('Department ID không hợp lệ'),
+            .isIn(['MALE', 'FEMALE', 'OTHER']).withMessage('Giới tính không hợp lệ'),
+
+        body('departmentId')
+            .notEmpty().withMessage('Phòng ban không được để trống')
+            .isString().withMessage('Department ID phải là chuỗi'),
+
+        body('position')
+            .optional()
+            .trim()
+            .isLength({ max: 100 }).withMessage('Chức vụ không quá 100 ký tự'),
+
+        body('hireDate')
+            .notEmpty().withMessage('Ngày vào làm không được để trống')
+            .isISO8601().withMessage('Ngày vào làm không hợp lệ'),
+
+        body('contractType')
+            .notEmpty().withMessage('Loại hợp đồng không được để trống')
+            .isIn(['FULLTIME', 'PARTTIME', 'CONTRACT', 'INTERNSHIP']).withMessage('Loại hợp đồng không hợp lệ'),
+
+        body('contractEndDate')
+            .optional()
+            .isISO8601().withMessage('Ngày kết thúc hợp đồng không hợp lệ'),
+
+        body('salary')
+            .optional()
+            .isFloat({ min: 0 }).withMessage('Lương phải là số dương'),
+
+        body('managerId')
+            .optional()
+            .isString().withMessage('Manager ID phải là chuỗi'),
+
         handleValidationErrors
     ],
 
     update: [
         param('id')
-            .isInt({ min: 1 })
-            .withMessage('User ID không hợp lệ'),
-        body('fullName')
-            .optional()
-            .isLength({ min: 2, max: 100 })
-            .withMessage('Họ tên phải từ 2-100 ký tự'),
-        body('saintName')
-            .optional()
-            .isLength({ max: 50 })
-            .withMessage('Tên thánh không được quá 50 ký tự'),
-        body('phoneNumber')
-            .optional()
-            .matches(/^(\+84|0)[3|5|7|8|9][0-9]{8}$/)
-            .withMessage('Số điện thoại không hợp lệ'),
-        body('birthDate')
-            .optional()
-            .isISO8601()
-            .withMessage('Ngày sinh không hợp lệ'),
-        handleValidationErrors
-    ],
+            .notEmpty().withMessage('Employee ID không được để trống'),
 
-    resetPassword: [
-        param('id')
-            .isInt({ min: 1 })
-            .withMessage('User ID không hợp lệ'),
-        body('newPassword')
-            .isLength({ min: 6 })
-            .withMessage('Mật khẩu mới phải ít nhất 6 ký tự'),
-        handleValidationErrors
-    ],
+        body('firstName')
+            .optional()
+            .trim()
+            .isLength({ min: 2, max: 50 }).withMessage('Tên phải từ 2-50 ký tự'),
 
-    toggleStatus: [
-        param('id')
-            .isInt({ min: 1 })
-            .withMessage('User ID không hợp lệ'),
-        body('action')
-            .notEmpty()
-            .withMessage('Action là bắt buộc')
-            .isIn(['activate', 'deactivate'])
-            .withMessage('Action phải là "activate" hoặc "deactivate"'),
+        body('lastName')
+            .optional()
+            .trim()
+            .isLength({ min: 2, max: 50 }).withMessage('Họ phải từ 2-50 ký tự'),
+
+        body('email')
+            .optional()
+            .trim()
+            .isEmail().withMessage('Email không hợp lệ')
+            .normalizeEmail(),
+
+        body('phone')
+            .optional()
+            .trim()
+            .matches(/^0\d{9,10}$/).withMessage('Số điện thoại không hợp lệ'),
+
+        body('dateOfBirth')
+            .optional()
+            .isISO8601().withMessage('Ngày sinh không hợp lệ'),
+
+        body('gender')
+            .optional()
+            .isIn(['MALE', 'FEMALE', 'OTHER']).withMessage('Giới tính không hợp lệ'),
+
+        body('position')
+            .optional()
+            .trim()
+            .isLength({ max: 100 }).withMessage('Chức vụ không quá 100 ký tự'),
+
+        body('salary')
+            .optional()
+            .isFloat({ min: 0 }).withMessage('Lương phải là số dương'),
+
+        body('status')
+            .optional()
+            .isIn(['ACTIVE', 'ON_LEAVE', 'TERMINATED']).withMessage('Trạng thái không hợp lệ'),
+
         handleValidationErrors
     ]
 };
 
-// Pending User validation rules
-const pendingUserValidation = {
-    register: [
-        body('username')
-            .notEmpty()
-            .withMessage('Username là bắt buộc')
-            .isLength({ min: 3, max: 50 })
-            .withMessage('Username phải từ 3-50 ký tự')
-            .matches(/^[a-zA-Z0-9_]+$/)
-            .withMessage('Username chỉ được chứa chữ, số và dấu gạch dưới'),
-        body('email')
+// ============================================
+// Attendance Validation
+// ============================================
+
+const attendanceValidation = {
+    checkIn: [
+        body('latitude')
+            .notEmpty().withMessage('Latitude không được để trống')
+            .isFloat({ min: -90, max: 90 }).withMessage('Latitude không hợp lệ (-90 đến 90)'),
+
+        body('longitude')
+            .notEmpty().withMessage('Longitude không được để trống')
+            .isFloat({ min: -180, max: 180 }).withMessage('Longitude không hợp lệ (-180 đến 180)'),
+
+        body('verificationPhoto')
             .optional()
-            .isEmail()
-            .withMessage('Email không hợp lệ'),
-        body('password')
-            .isLength({ min: 6 })
-            .withMessage('Password phải ít nhất 6 ký tự'),
-        body('role')
-            .isIn(['ban_dieu_hanh', 'phan_doan_truong', 'giao_ly_vien'])
-            .withMessage('Role không hợp lệ'),
-        body('fullName')
-            .notEmpty()
-            .withMessage('Họ tên là bắt buộc')
-            .isLength({ min: 2, max: 100 })
-            .withMessage('Họ tên phải từ 2-100 ký tự'),
-        body('saintName')
+            .isString().withMessage('Verification photo phải là chuỗi'),
+
+        handleValidationErrors
+    ],
+
+    checkOut: [
+        param('id')
+            .notEmpty().withMessage('Attendance ID không được để trống'),
+
+        body('latitude')
+            .notEmpty().withMessage('Latitude không được để trống')
+            .isFloat({ min: -90, max: 90 }).withMessage('Latitude không hợp lệ'),
+
+        body('longitude')
+            .notEmpty().withMessage('Longitude không được để trống')
+            .isFloat({ min: -180, max: 180 }).withMessage('Longitude không hợp lệ'),
+
+        body('verificationPhoto')
             .optional()
-            .isLength({ max: 50 })
-            .withMessage('Tên thánh không được quá 50 ký tự'),
-        body('phoneNumber')
-            .optional()
-            .matches(/^(\+84|0)[3|5|7|8|9][0-9]{8}$/)
-            .withMessage('Số điện thoại không hợp lệ (VN format)'),
-        body('birthDate')
-            .optional()
-            .isISO8601()
-            .withMessage('Ngày sinh không hợp lệ')
-            .custom((value) => {
-                if (value) {
-                    const birthDate = new Date(value);
-                    const today = new Date();
-                    const age = today.getFullYear() - birthDate.getFullYear();
-                    if (age < 16 || age > 80) {
-                        throw new Error('Tuổi phải từ 16-80');
-                    }
+            .isString().withMessage('Verification photo phải là chuỗi'),
+
+        handleValidationErrors
+    ],
+
+    getByDateRange: [
+        query('startDate')
+            .notEmpty().withMessage('Start date không được để trống')
+            .isISO8601().withMessage('Start date không hợp lệ'),
+
+        query('endDate')
+            .notEmpty().withMessage('End date không được để trống')
+            .isISO8601().withMessage('End date không hợp lệ')
+            .custom((endDate, { req }) => {
+                if (new Date(endDate) < new Date(req.query.startDate)) {
+                    throw new Error('End date phải sau start date');
                 }
                 return true;
             }),
-        body('address')
+
+        handleValidationErrors
+    ]
+};
+
+// ============================================
+// Leave Validation
+// ============================================
+
+const leaveValidation = {
+    request: [
+        body('leaveType')
+            .notEmpty().withMessage('Loại nghỉ phép không được để trống')
+            .isIn(['ANNUAL', 'SICK', 'UNPAID', 'MATERNITY', 'PATERNITY']).withMessage('Loại nghỉ phép không hợp lệ'),
+
+        body('startDate')
+            .notEmpty().withMessage('Ngày bắt đầu không được để trống')
+            .isISO8601().withMessage('Ngày bắt đầu không hợp lệ')
+            .custom((value) => {
+                const startDate = new Date(value);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                if (startDate < today) {
+                    throw new Error('Ngày bắt đầu không được trong quá khứ');
+                }
+                return true;
+            }),
+
+        body('endDate')
+            .notEmpty().withMessage('Ngày kết thúc không được để trống')
+            .isISO8601().withMessage('Ngày kết thúc không hợp lệ')
+            .custom((endDate, { req }) => {
+                if (new Date(endDate) < new Date(req.body.startDate)) {
+                    throw new Error('Ngày kết thúc phải sau ngày bắt đầu');
+                }
+                return true;
+            }),
+
+        body('reason')
+            .notEmpty().withMessage('Lý do không được để trống')
+            .trim()
+            .isLength({ min: 10, max: 500 }).withMessage('Lý do phải từ 10-500 ký tự'),
+
+        body('notes')
             .optional()
-            .isLength({ min: 10, max: 500 })
-            .withMessage('Địa chỉ phải từ 10-500 ký tự'),
-        body('departmentId')
-            .optional()
-            .isInt({ min: 1 })
-            .withMessage('Department ID không hợp lệ'),
+            .trim()
+            .isLength({ max: 1000 }).withMessage('Ghi chú không quá 1000 ký tự'),
+
         handleValidationErrors
     ],
 
     approve: [
         param('id')
-            .isInt({ min: 1 })
-            .withMessage('Pending User ID không hợp lệ'),
-        body('departmentId')
-            .optional()
-            .isInt({ min: 1 })
-            .withMessage('Department ID không hợp lệ'),
-        handleValidationErrors
-    ],
+            .notEmpty().withMessage('Leave ID không được để trống'),
 
-    reject: [
-        param('id')
-            .isInt({ min: 1 })
-            .withMessage('Pending User ID không hợp lệ'),
-        body('rejectionReason')
-            .notEmpty()
-            .withMessage('Lý do từ chối là bắt buộc')
-            .isLength({ min: 10, max: 500 })
-            .withMessage('Lý do từ chối phải từ 10-500 ký tự'),
+        body('status')
+            .notEmpty().withMessage('Trạng thái không được để trống')
+            .isIn(['APPROVED', 'REJECTED']).withMessage('Trạng thái không hợp lệ'),
+
+        body('reviewerNotes')
+            .optional()
+            .trim()
+            .isLength({ max: 500 }).withMessage('Ghi chú không quá 500 ký tự'),
+
         handleValidationErrors
     ]
 };
 
-// Student validation rules
-const studentValidation = {
+// ============================================
+// Shift Validation
+// ============================================
+
+const shiftValidation = {
     create: [
-        body('studentCode')
-            .notEmpty()
-            .withMessage('Mã học sinh là bắt buộc')
-            .isLength({ min: 3, max: 20 })
-            .withMessage('Mã học sinh phải từ 3-20 ký tự'),
+        body('name')
+            .notEmpty().withMessage('Tên ca không được để trống')
+            .trim()
+            .isLength({ min: 2, max: 100 }).withMessage('Tên ca phải từ 2-100 ký tự'),
 
-        body('fullName')
-            .notEmpty()
-            .withMessage('Họ tên là bắt buộc')
-            .isLength({ min: 2, max: 100 })
-            .withMessage('Họ tên phải từ 2-100 ký tự'),
+        body('startTime')
+            .notEmpty().withMessage('Giờ bắt đầu không được để trống')
+            .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Giờ bắt đầu không hợp lệ (HH:mm)'),
 
-        body('classId')
-            .notEmpty()
-            .withMessage('Lớp là bắt buộc')
-            .isInt({ min: 1 })
-            .withMessage('ID lớp không hợp lệ'),
+        body('endTime')
+            .notEmpty().withMessage('Giờ kết thúc không được để trống')
+            .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Giờ kết thúc không hợp lệ (HH:mm)'),
 
-        body('saintName')
+        body('breakDuration')
             .optional()
-            .isLength({ max: 50 })
-            .withMessage('Tên thánh không được quá 50 ký tự'),
+            .isInt({ min: 0, max: 480 }).withMessage('Thời gian nghỉ giải lao phải từ 0-480 phút'),
 
-        body('birthDate')
+        body('gracePeriodMinutes')
             .optional()
-            .isISO8601()
-            .withMessage('Ngày sinh không hợp lệ'),
+            .isInt({ min: 0, max: 60 }).withMessage('Grace period phải từ 0-60 phút'),
 
-        body('phoneNumber')
-            .optional()
-            .custom((value) => {
-                if (!value || value.trim() === '') return true; // Skip if empty
-                return /^(\+84|0)[3|5|7|8|9][0-9]{8}$/.test(value);
-            })
-            .withMessage('Số điện thoại không hợp lệ'),
+        body('monday').optional().isBoolean().withMessage('Monday phải là boolean'),
+        body('tuesday').optional().isBoolean().withMessage('Tuesday phải là boolean'),
+        body('wednesday').optional().isBoolean().withMessage('Wednesday phải là boolean'),
+        body('thursday').optional().isBoolean().withMessage('Thursday phải là boolean'),
+        body('friday').optional().isBoolean().withMessage('Friday phải là boolean'),
+        body('saturday').optional().isBoolean().withMessage('Saturday phải là boolean'),
+        body('sunday').optional().isBoolean().withMessage('Sunday phải là boolean'),
 
-        body('parentPhone1')
-            .optional()
-            .custom((value) => {
-                if (!value || value.trim() === '') return true; // Skip if empty
-                return /^(\+84|0)[3|5|7|8|9][0-9]{8}$/.test(value);
-            })
-            .withMessage('Số điện thoại phụ huynh 1 không hợp lệ'),
-
-        body('parentPhone2')
-            .optional()
-            .custom((value) => {
-                if (!value || value.trim() === '') return true; // Skip if empty
-                return /^(\+84|0)[3|5|7|8|9][0-9]{8}$/.test(value);
-            })
-            .withMessage('Số điện thoại phụ huynh 2 không hợp lệ'),
-
-        body('academicYearId')
-            .optional()
-            .isInt({ min: 1 })
-            .withMessage('ID năm học không hợp lệ'),
-
-        // Score fields for create (optional, will default to 0)
-        body('thursdayAttendanceCount')
-            .optional()
-            .isInt({ min: 0, max: 100 })
-            .withMessage('Số buổi điểm danh thứ 5 phải từ 0-100'),
-
-        body('sundayAttendanceCount')
-            .optional()
-            .isInt({ min: 0, max: 100 })
-            .withMessage('Số buổi điểm danh chủ nhật phải từ 0-100'),
-
-        body('study45Hk1')
-            .optional()
-            .isFloat({ min: 0, max: 10 })
-            .withMessage('Điểm 45 phút HK1 phải từ 0-10'),
-
-        body('examHk1')
-            .optional()
-            .isFloat({ min: 0, max: 10 })
-            .withMessage('Điểm thi HK1 phải từ 0-10'),
-
-        body('study45Hk2')
-            .optional()
-            .isFloat({ min: 0, max: 10 })
-            .withMessage('Điểm 45 phút HK2 phải từ 0-10'),
-
-        body('examHk2')
-            .optional()
-            .isFloat({ min: 0, max: 10 })
-            .withMessage('Điểm thi HK2 phải từ 0-10'),
-
-        (req, res, next) => {
-            const errors = validationResult(req);
-            if (!errors.isEmpty()) {
-                return res.status(400).json({
-                    error: 'Validation Error',
-                    details: errors.array()
-                });
-            }
-            next();
-        }
+        handleValidationErrors
     ],
 
-    update: [
-        param('id')
-            .isInt({ min: 1 })
-            .withMessage('ID học sinh không hợp lệ'),
+    assign: [
+        body('employeeId')
+            .notEmpty().withMessage('Employee ID không được để trống'),
 
-        body('studentCode')
+        body('shiftId')
+            .notEmpty().withMessage('Shift ID không được để trống'),
+
+        body('effectiveFrom')
+            .notEmpty().withMessage('Ngày hiệu lực không được để trống')
+            .isISO8601().withMessage('Ngày hiệu lực không hợp lệ'),
+
+        body('effectiveTo')
             .optional()
-            .isLength({ min: 3, max: 20 })
-            .withMessage('Mã học sinh phải từ 3-20 ký tự'),
-
-        body('fullName')
-            .optional()
-            .isLength({ min: 2, max: 100 })
-            .withMessage('Họ tên phải từ 2-100 ký tự'),
-
-        body('classId')
-            .optional()
-            .isInt({ min: 1 })
-            .withMessage('ID lớp không hợp lệ'),
-
-        body('saintName')
-            .optional()
-            .isLength({ max: 50 })
-            .withMessage('Tên thánh không được quá 50 ký tự'),
-
-        body('birthDate')
-            .optional()
-            .isISO8601()
-            .withMessage('Ngày sinh không hợp lệ'),
-
-        body('phoneNumber')
-            .optional()
-            .custom((value) => {
-                if (!value || value.trim() === '') return true; // Skip if empty
-                return /^(\+84|0)[3|5|7|8|9][0-9]{8}$/.test(value);
-            })
-            .withMessage('Số điện thoại không hợp lệ (VN format)'),
-
-        body('parentPhone1')
-            .optional()
-            .custom((value) => {
-                if (!value || value.trim() === '') return true;
-                return /^(\+84|0)[3|5|7|8|9][0-9]{8}$/.test(value);
-            })
-            .withMessage('Số điện thoại phụ huynh 1 không hợp lệ (VN format)'),
-
-        body('parentPhone2')
-            .optional()
-            .custom((value) => {
-                if (!value || value.trim() === '') return true;
-                return /^(\+84|0)[3|5|7|8|9][0-9]{8}$/.test(value);
-            })
-            .withMessage('Số điện thoại phụ huynh 2 không hợp lệ (VN format)'),
-
-        body('academicYearId')
-            .optional()
-            .isInt({ min: 1 })
-            .withMessage('ID năm học không hợp lệ'),
-
-        // Score fields for update
-        body('thursdayAttendanceCount')
-            .optional()
-            .isInt({ min: 0, max: 100 })
-            .withMessage('Số buổi điểm danh thứ 5 phải từ 0-100'),
-
-        body('sundayAttendanceCount')
-            .optional()
-            .isInt({ min: 0, max: 100 })
-            .withMessage('Số buổi điểm danh chủ nhật phải từ 0-100'),
-
-        body('study45Hk1')
-            .optional()
-            .isFloat({ min: 0, max: 10 })
-            .withMessage('Điểm 45 phút HK1 phải từ 0-10'),
-
-        body('examHk1')
-            .optional()
-            .isFloat({ min: 0, max: 10 })
-            .withMessage('Điểm thi HK1 phải từ 0-10'),
-
-        body('study45Hk2')
-            .optional()
-            .isFloat({ min: 0, max: 10 })
-            .withMessage('Điểm 45 phút HK2 phải từ 0-10'),
-
-        body('examHk2')
-            .optional()
-            .isFloat({ min: 0, max: 10 })
-            .withMessage('Điểm thi HK2 phải từ 0-10'),
-
-        // Prevent manual update of calculated fields
-        body(['attendanceAverage', 'studyAverage', 'finalAverage'])
-            .custom((value, { path }) => {
-                if (value !== undefined) {
-                    throw new Error(`${path} được tính tự động, không thể cập nhật thủ công`);
+            .isISO8601().withMessage('Ngày kết thúc không hợp lệ')
+            .custom((effectiveTo, { req }) => {
+                if (effectiveTo && new Date(effectiveTo) < new Date(req.body.effectiveFrom)) {
+                    throw new Error('Ngày kết thúc phải sau ngày hiệu lực');
                 }
                 return true;
             }),
 
-        (req, res, next) => {
-            const errors = validationResult(req);
-            if (!errors.isEmpty()) {
-                return res.status(400).json({
-                    error: 'Validation Error',
-                    details: errors.array()
-                });
-            }
-            next();
-        }
+        handleValidationErrors
     ]
 };
 
-// Class validation rules
-const classValidation = {
+// ============================================
+// Device Validation
+// ============================================
+
+const deviceValidation = {
+    create: [
+        body('deviceName')
+            .notEmpty().withMessage('Tên thiết bị không được để trống')
+            .trim()
+            .isLength({ min: 2, max: 100 }).withMessage('Tên thiết bị phải từ 2-100 ký tự'),
+
+        body('deviceType')
+            .notEmpty().withMessage('Loại thiết bị không được để trống')
+            .isIn(['FINGERPRINT', 'FACE_RECOGNITION', 'MOBILE_APP']).withMessage('Loại thiết bị không hợp lệ'),
+
+        body('location')
+            .optional()
+            .trim()
+            .isLength({ max: 200 }).withMessage('Địa điểm không quá 200 ký tự'),
+
+        body('ipAddress')
+            .optional()
+            .trim()
+            .isIP().withMessage('IP address không hợp lệ'),
+
+        handleValidationErrors
+    ]
+};
+
+// ============================================
+// Department Validation
+// ============================================
+
+const departmentValidation = {
     create: [
         body('name')
-            .notEmpty()
-            .withMessage('Tên lớp là bắt buộc')
-            .isLength({ min: 2, max: 50 })
-            .withMessage('Tên lớp phải từ 2-50 ký tự'),
-        body('departmentId')
-            .isInt({ min: 1 })
-            .withMessage('Ngành là bắt buộc'),
-        body('teacherIds')
+            .notEmpty().withMessage('Tên phòng ban không được để trống')
+            .trim()
+            .isLength({ min: 2, max: 100 }).withMessage('Tên phòng ban phải từ 2-100 ký tự'),
+
+        body('code')
             .optional()
-            .isArray()
-            .withMessage('Teacher IDs phải là array'),
-        body('teacherIds.*')
+            .trim()
+            .isLength({ min: 2, max: 20 }).withMessage('Mã phòng ban phải từ 2-20 ký tự')
+            .matches(/^[A-Z0-9_]+$/).withMessage('Mã phòng ban chỉ chứa chữ hoa, số và gạch dưới'),
+
+        body('description')
             .optional()
-            .isInt({ min: 1 })
-            .withMessage('Teacher ID không hợp lệ'),
+            .trim()
+            .isLength({ max: 500 }).withMessage('Mô tả không quá 500 ký tự'),
+
+        body('parentId')
+            .optional()
+            .isString().withMessage('Parent ID phải là chuỗi'),
+
         handleValidationErrors
     ],
 
     update: [
         param('id')
-            .isInt({ min: 1 })
-            .withMessage('Class ID không hợp lệ'),
+            .notEmpty().withMessage('Department ID không được để trống'),
+
         body('name')
             .optional()
-            .isLength({ min: 2, max: 50 })
-            .withMessage('Tên lớp phải từ 2-50 ký tự'),
-        body('departmentId')
-            .optional()
-            .isInt({ min: 1 })
-            .withMessage('Department ID không hợp lệ'),
-        handleValidationErrors
-    ],
+            .trim()
+            .isLength({ min: 2, max: 100 }).withMessage('Tên phòng ban phải từ 2-100 ký tự'),
 
-    assignTeacher: [
-        param('classId')
-            .isInt({ min: 1 })
-            .withMessage('Class ID không hợp lệ'),
-        body('userId')
-            .isInt({ min: 1 })
-            .withMessage('User ID là bắt buộc'),
-        body('isPrimary')
+        body('description')
             .optional()
-            .isBoolean()
-            .withMessage('isPrimary phải là boolean'),
+            .trim()
+            .isLength({ max: 500 }).withMessage('Mô tả không quá 500 ký tự'),
+
         handleValidationErrors
     ]
 };
 
-// Attendance validation rules
-const attendanceValidation = {
-    mark: [
-        body('studentId')
-            .isInt({ min: 1 })
-            .withMessage('Student ID là bắt buộc'),
-        body('attendanceDate')
-            .isISO8601()
-            .withMessage('Ngày điểm danh không hợp lệ')
-            .custom((value) => {
-                const date = new Date(value);
-                const today = new Date();
-                const diffTime = Math.abs(today - date);
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                if (diffDays > 30) {
-                    throw new Error('Chỉ được điểm danh trong vòng 30 ngày');
-                }
-                return true;
-            }),
-        body('attendanceType')
-            .isIn(['thursday', 'sunday'])
-            .withMessage('Loại điểm danh phải là thursday hoặc sunday'),
-        body('isPresent')
-            .isBoolean()
-            .withMessage('isPresent phải là boolean'),
-        body('note')
-            .optional()
-            .isLength({ max: 500 })
-            .withMessage('Ghi chú không được quá 500 ký tự'),
-        handleValidationErrors
-    ],
+// ============================================
+// Report Validation
+// ============================================
 
-    getByClass: [
-        param('classId')
-            .isInt({ min: 1 })
-            .withMessage('Class ID không hợp lệ'),
-        query('date')
-            .notEmpty()
-            .withMessage('Ngày là bắt buộc')
-            .isISO8601()
-            .withMessage('Định dạng ngày không hợp lệ'),
-        query('type')
-            .isIn(['thursday', 'sunday'])
-            .withMessage('Loại điểm danh phải là thursday hoặc sunday'),
-        handleValidationErrors
-    ],
-
-    batchMark: [
-        param('classId')
-            .isInt({ min: 1 })
-            .withMessage('Class ID không hợp lệ'),
-        body('attendanceDate')
-            .isISO8601()
-            .withMessage('Ngày điểm danh không hợp lệ'),
-        body('attendanceType')
-            .isIn(['thursday', 'sunday'])
-            .withMessage('Loại điểm danh không hợp lệ'),
-        body('attendanceRecords')
-            .isArray({ min: 1 })
-            .withMessage('Danh sách điểm danh không được rỗng'),
-        body('attendanceRecords.*.studentId')
-            .isInt({ min: 1 })
-            .withMessage('Student ID không hợp lệ'),
-        body('attendanceRecords.*.isPresent')
-            .isBoolean()
-            .withMessage('isPresent phải là boolean'),
-        handleValidationErrors
-    ],
-
-    getStudentHistory: [
-        param('id')
-            .isInt({ min: 1 })
-            .withMessage('Student ID không hợp lệ'),
-
-        query('page')
-            .optional()
-            .isInt({ min: 1 })
-            .withMessage('Page phải là số nguyên dương'),
-
-        query('limit')
-            .optional()
-            .isInt({ min: 1, max: 200 })
-            .withMessage('Limit phải từ 1-200'),
-
-        query('startDate')
-            .optional()
-            .isISO8601()
-            .withMessage('Start date không hợp lệ (YYYY-MM-DD)'),
-
-        query('endDate')
-            .optional()
-            .isISO8601()
-            .withMessage('End date không hợp lệ (YYYY-MM-DD)')
-            .custom((endDate, { req }) => {
-                if (req.query.startDate && endDate) {
-                    const start = new Date(req.query.startDate);
-                    const end = new Date(endDate);
-                    if (end < start) {
-                        throw new Error('End date phải sau start date');
-                    }
-                }
-                return true;
-            }),
-
-        query('type')
-            .optional()
-            .isIn(['thursday', 'sunday'])
-            .withMessage('Type phải là thursday hoặc sunday'),
-
-        query('status')
-            .optional()
-            .isIn(['present', 'absent'])
-            .withMessage('Status phải là present hoặc absent'),
+const reportValidation = {
+    monthlyAttendance: [
+        query('year')
+            .notEmpty().withMessage('Năm không được để trống')
+            .isInt({ min: 2000, max: 2100 }).withMessage('Năm không hợp lệ'),
 
         query('month')
+            .notEmpty().withMessage('Tháng không được để trống')
+            .isInt({ min: 1, max: 12 }).withMessage('Tháng phải từ 1-12'),
+
+        query('departmentId')
             .optional()
-            .matches(/^\d{4}-\d{2}$/)
-            .withMessage('Month phải theo format YYYY-MM (ví dụ: 2024-03)'),
+            .isString().withMessage('Department ID phải là chuỗi'),
 
-        handleValidationErrors
-    ],
-
-    // NEW: Student attendance stats validation  
-    getStudentStats: [
-        param('id')
-            .isInt({ min: 1 })
-            .withMessage('Student ID không hợp lệ'),
-
-        query('year')
-            .optional()
-            .isInt({ min: 2020, max: 2030 })
-            .withMessage('Year phải từ 2020-2030'),
-
-        handleValidationErrors
-    ],
-
-    universal: [
-        body('studentCodes')
-            .isArray()
-            .withMessage('Student codes must be an array')
-            .notEmpty()
-            .withMessage('Student codes cannot be empty'),
-        body('studentCodes.*')
-            .isString()
-            .withMessage('Each student code must be a string')
-            .trim()
-            .isLength({ min: 1, max: 20 })
-            .withMessage('Student code must be 1-20 characters'),
-        body('attendanceDate')
-            .isISO8601()
-            .withMessage('Invalid attendance date format'),
-        body('attendanceType')
-            .isIn(['thursday', 'sunday'])
-            .withMessage('Attendance type must be thursday or sunday'),
-        body('isPresent')
-            .optional()
-            .isBoolean()
-            .withMessage('isPresent must be boolean (true for present, false for absent)'),
-        body('note')
-            .optional()
-            .isString()
-            .trim()
-            .isLength({ max: 500 })
-            .withMessage('Note must be less than 500 characters'),
-        (req, res, next) => {
-            const errors = validationResult(req);
-            if (!errors.isEmpty()) {
-                return res.status(400).json({
-                    error: 'Dữ liệu không hợp lệ',
-                    details: errors.array()
-                });
-            }
-            next();
-        }
-    ],
-
-    // ✅ Today's attendance status validation
-    todayStatus: [
-        query('date')
-            .notEmpty()
-            .withMessage('Date is required')
-            .isISO8601()
-            .withMessage('Invalid date format (YYYY-MM-DD)'),
-        query('type')
-            .isIn(['thursday', 'sunday'])
-            .withMessage('Type must be thursday or sunday'),
-        body('studentCodes')
-            .isArray()
-            .withMessage('Student codes must be an array')
-            .notEmpty()
-            .withMessage('Student codes array cannot be empty'),
-        body('studentCodes.*')
-            .isString()
-            .withMessage('Each student code must be a string')
-            .trim()
-            .isLength({ min: 1, max: 20 })
-            .withMessage('Each student code must be 1-20 characters'),
-        handleValidationErrors
-    ],
-};
-
-// Query validation rules
-const queryValidation = {
-    pagination: [
-        query('page')
-            .optional()
-            .isInt({ min: 1 })
-            .withMessage('Page phải là số nguyên dương'),
-        query('limit')
-            .optional()
-            .isInt({ min: 1, max: 1000 })
-            .withMessage('Limit phải từ 1-1000'),
-        handleValidationErrors
-    ],
-
-    search: [
-        query('search')
-            .optional()
-            .isLength({ min: 0, max: 100 })
-            .withMessage('Từ khóa tìm kiếm phải từ 0-100 ký tự'),
         handleValidationErrors
     ],
 
     dateRange: [
         query('startDate')
-            .optional()
-            .isISO8601()
-            .withMessage('Start date không hợp lệ'),
+            .notEmpty().withMessage('Ngày bắt đầu không được để trống')
+            .isISO8601().withMessage('Ngày bắt đầu không hợp lệ'),
+
         query('endDate')
-            .optional()
-            .isISO8601()
-            .withMessage('End date không hợp lệ')
+            .notEmpty().withMessage('Ngày kết thúc không được để trống')
+            .isISO8601().withMessage('Ngày kết thúc không hợp lệ')
             .custom((endDate, { req }) => {
-                if (req.query.startDate && endDate) {
-                    const start = new Date(req.query.startDate);
-                    const end = new Date(endDate);
-                    if (end < start) {
-                        throw new Error('End date phải sau start date');
-                    }
+                if (new Date(endDate) < new Date(req.query.startDate)) {
+                    throw new Error('Ngày kết thúc phải sau ngày bắt đầu');
+                }
+                // Limit to 1 year
+                const daysDiff = (new Date(endDate) - new Date(req.query.startDate)) / (1000 * 60 * 60 * 24);
+                if (daysDiff > 365) {
+                    throw new Error('Khoảng thời gian không quá 1 năm');
                 }
                 return true;
             }),
+
         handleValidationErrors
     ]
 };
 
-const academicYearValidation = {
-    // Validation for creating academic year
-    create: [
-        body('name')
-            .notEmpty()
-            .withMessage('Tên năm học là bắt buộc')
-            .isLength({ min: 3, max: 20 })
-            .withMessage('Tên năm học phải từ 3-20 ký tự')
-            .matches(/^\d{4}-\d{4}$/)
-            .withMessage('Tên năm học phải theo format YYYY-YYYY (ví dụ: 2024-2025)'),
+// ============================================
+// User/Auth Validation
+// ============================================
 
-        body('startDate')
-            .notEmpty()
-            .withMessage('Ngày bắt đầu là bắt buộc')
-            .isISO8601()
-            .withMessage('Ngày bắt đầu không hợp lệ'),
+const authValidation = {
+    login: [
+        body('username')
+            .notEmpty().withMessage('Username không được để trống')
+            .trim(),
 
-        body('endDate')
-            .notEmpty()
-            .withMessage('Ngày kết thúc là bắt buộc')
-            .isISO8601()
-            .withMessage('Ngày kết thúc không hợp lệ')
-            .custom((endDate, { req }) => {
-                if (new Date(endDate) <= new Date(req.body.startDate)) {
-                    throw new Error('Ngày kết thúc phải sau ngày bắt đầu');
-                }
-                return true;
-            }),
+        body('password')
+            .notEmpty().withMessage('Password không được để trống'),
 
-        // Handle validation errors
-        (req, res, next) => {
-            const errors = validationResult(req);
-            if (!errors.isEmpty()) {
-                return res.status(400).json({
-                    error: 'Validation Error',
-                    details: errors.array()
-                });
-            }
-            next();
-        }
+        handleValidationErrors
     ],
 
-    // Validation for updating academic year
-    update: [
-        param('id')
-            .isInt({ min: 1 })
-            .withMessage('ID năm học không hợp lệ'),
+    register: [
+        body('username')
+            .notEmpty().withMessage('Username không được để trống')
+            .trim()
+            .isLength({ min: 3, max: 50 }).withMessage('Username phải từ 3-50 ký tự')
+            .matches(/^[a-zA-Z0-9_]+$/).withMessage('Username chỉ chứa chữ, số và gạch dưới'),
 
-        body('name')
-            .optional()
-            .isLength({ min: 3, max: 20 })
-            .withMessage('Tên năm học phải từ 3-20 ký tự')
-            .matches(/^\d{4}-\d{4}$/)
-            .withMessage('Tên năm học phải theo format YYYY-YYYY'),
+        body('password')
+            .notEmpty().withMessage('Password không được để trống')
+            .isLength({ min: 8 }).withMessage('Password phải ít nhất 8 ký tự')
+            .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Password phải chứa chữ hoa, chữ thường và số'),
 
-        body('startDate')
-            .optional()
-            .isISO8601()
-            .withMessage('Ngày bắt đầu không hợp lệ'),
+        body('email')
+            .notEmpty().withMessage('Email không được để trống')
+            .isEmail().withMessage('Email không hợp lệ')
+            .normalizeEmail(),
 
-        body('endDate')
+        body('role')
             .optional()
-            .isISO8601()
-            .withMessage('Ngày kết thúc không hợp lệ')
-            .custom((endDate, { req }) => {
-                if (req.body.startDate && new Date(endDate) <= new Date(req.body.startDate)) {
-                    throw new Error('Ngày kết thúc phải sau ngày bắt đầu');
+            .isIn(['ADMIN', 'HR_MANAGER', 'DEPARTMENT_MANAGER', 'EMPLOYEE']).withMessage('Role không hợp lệ'),
+
+        handleValidationErrors
+    ],
+
+    changePassword: [
+        body('currentPassword')
+            .notEmpty().withMessage('Mật khẩu hiện tại không được để trống'),
+
+        body('newPassword')
+            .notEmpty().withMessage('Mật khẩu mới không được để trống')
+            .isLength({ min: 8 }).withMessage('Mật khẩu mới phải ít nhất 8 ký tự')
+            .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Mật khẩu mới phải chứa chữ hoa, chữ thường và số')
+            .custom((newPassword, { req }) => {
+                if (newPassword === req.body.currentPassword) {
+                    throw new Error('Mật khẩu mới phải khác mật khẩu hiện tại');
                 }
                 return true;
             }),
 
-        (req, res, next) => {
-            const errors = validationResult(req);
-            if (!errors.isEmpty()) {
-                return res.status(400).json({
-                    error: 'Validation Error',
-                    details: errors.array()
-                });
-            }
-            next();
-        }
+        handleValidationErrors
     ]
 };
 
-const scoreValidation = {
-    // Validation for updating student scores
-    update: [
+// ============================================
+// Common Validation
+// ============================================
+
+const commonValidation = {
+    id: [
         param('id')
-            .isInt({ min: 1 })
-            .withMessage('ID học sinh không hợp lệ'),
+            .notEmpty().withMessage('ID không được để trống')
+            .isString().withMessage('ID phải là chuỗi'),
 
-        body('thursdayAttendanceCount')
+        handleValidationErrors
+    ],
+
+    pagination: [
+        query('page')
             .optional()
-            .isInt({ min: 0, max: 100 })
-            .withMessage('Số buổi điểm danh thứ 5 phải từ 0-100'),
+            .isInt({ min: 1 }).withMessage('Page phải là số nguyên dương'),
 
-        body('sundayAttendanceCount')
+        query('limit')
             .optional()
-            .isInt({ min: 0, max: 100 })
-            .withMessage('Số buổi điểm danh chủ nhật phải từ 0-100'),
+            .isInt({ min: 1, max: 100 }).withMessage('Limit phải từ 1-100'),
 
-        body('study45Hk1')
-            .optional()
-            .isFloat({ min: 0, max: 10 })
-            .withMessage('Điểm 45 phút HK1 phải từ 0-10'),
-
-        body('examHk1')
-            .optional()
-            .isFloat({ min: 0, max: 10 })
-            .withMessage('Điểm thi HK1 phải từ 0-10'),
-
-        body('study45Hk2')
-            .optional()
-            .isFloat({ min: 0, max: 10 })
-            .withMessage('Điểm 45 phút HK2 phải từ 0-10'),
-
-        body('examHk2')
-            .optional()
-            .isFloat({ min: 0, max: 10 })
-            .withMessage('Điểm thi HK2 phải từ 0-10'),
-
-        (req, res, next) => {
-            const errors = validationResult(req);
-            if (!errors.isEmpty()) {
-                return res.status(400).json({
-                    error: 'Validation Error',
-                    details: errors.array()
-                });
-            }
-            next();
-        }
+        handleValidationErrors
     ]
 };
 
 module.exports = {
-    authValidation,
-    userValidation,
-    pendingUserValidation,
-    studentValidation,
-    classValidation,
+    handleValidationErrors,
+    employeeValidation,
     attendanceValidation,
-    queryValidation,
-    academicYearValidation,
-    scoreValidation,
-    handleValidationErrors
+    leaveValidation,
+    shiftValidation,
+    deviceValidation,
+    departmentValidation,
+    reportValidation,
+    authValidation,
+    commonValidation
 };

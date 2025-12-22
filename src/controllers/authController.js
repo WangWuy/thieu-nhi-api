@@ -14,18 +14,9 @@ const authController = {
                     username: { equals: username, mode: 'insensitive' }
                 },
                 include: {
-                    department: true,
-                    classTeachers: {
+                    employee: {
                         include: {
-                            class: {
-                                include: {
-                                    department: true,
-                                    students: {
-                                        where: { isActive: true },
-                                        select: { id: true } // tạm lấy id để đếm
-                                    }
-                                }
-                            }
+                            department: true
                         }
                     }
                 }
@@ -60,8 +51,7 @@ const authController = {
                 userId: user.id,
                 username: user.username,
                 role: user.role,
-                departmentId: user.departmentId,
-                fullName: user.fullName
+                employeeId: user.employeeId
             };
 
             if (!process.env.JWT_SECRET) {
@@ -71,39 +61,19 @@ const authController = {
             // Tạo token
             const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, {
                 expiresIn: '24h',
-                issuer: 'thieu-nhi-api',
-                audience: 'thieu-nhi-app'
+                issuer: 'hr-management-api',
+                audience: 'hr-management-app'
             });
 
-            // ✅ Tính tổng thiếu nhi active cho từng lớp
-            const userWithCounts = {
-                ...user,
-                classTeachers: user.classTeachers.map(ct => {
-                    const classInfo = {
-                        ...ct.class,
-                        totalStudents: ct.class.students.length
-                    };
-                    return {
-                        ...ct,
-                        classInfo // 👈 key mới thay cho 'class'
-                    };
-                })
-            };
-
-            // ✅ Xóa trường students (vì chỉ cần tổng)
-            userWithCounts.classTeachers.forEach(ct => {
-                delete ct.class.students;
+            // Update last login
+            await prisma.user.update({
+                where: { id: user.id },
+                data: { lastLogin: new Date() }
             });
-
-            // Xóa mật khẩu hash
-            const { passwordHash, ...userWithoutPassword } = userWithCounts;
-
-            // Quyền
-            const permissions = getUserPermissions(user.role);
 
             console.log(`✅ Login: ${user.username} (${user.role}) - IP: ${req.headers['x-forwarded-for'] || req.ip}`);
 
-            // ✅ Trả về tất cả thông tin cần thiết
+            // Return user info without password
             res.json({
                 success: true,
                 message: 'Đăng nhập thành công',
@@ -112,23 +82,15 @@ const authController = {
                 user: {
                     id: user.id,
                     username: user.username,
-                    fullName: user.fullName,
                     role: user.role,
-                    avatarUrl: user.avatarUrl,
-                    department: user.department,
-                    classTeacher: userWithCounts.classTeachers.length > 0
-                        ? {
-                            id: userWithCounts.classTeachers[0].id,
-                            isPrimary: userWithCounts.classTeachers[0].isPrimary,
-                            classInfo: {
-                                id: userWithCounts.classTeachers[0].classInfo.id,
-                                name: userWithCounts.classTeachers[0].classInfo.name,
-                                totalStudents: userWithCounts.classTeachers[0].classInfo.totalStudents,
-                                department: userWithCounts.classTeachers[0].classInfo.department
-                            }
-                        }
-                        : null,
-                    permissions: getUserPermissions(user.role)
+                    employee: user.employee ? {
+                        id: user.employee.id,
+                        employeeCode: user.employee.employeeCode,
+                        fullName: user.employee.fullName,
+                        position: user.employee.position,
+                        avatarUrl: user.employee.avatarUrl,
+                        department: user.employee.department
+                    } : null
                 }
             });
 

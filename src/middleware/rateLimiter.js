@@ -101,7 +101,7 @@ const apiLimiter = rateLimit({
 // Strict limiter cho các operations sensitive
 const strictLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 1 giờ
-    max: 10, // Chỉ 10 requests per hour
+    max: 100, // Chỉ 10 requests per hour
     message: {
         error: 'Strict Rate Limit',
         message: 'Quá nhiều yêu cầu cho chức năng này, vui lòng thử lại sau 1 giờ.'
@@ -144,7 +144,7 @@ const passwordResetLimiter = rateLimit({
 // Create account limiter
 const createAccountLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 1 giờ
-    max: 5, // Chỉ 5 accounts per IP per hour
+    max: 50, // Chỉ 5 accounts per IP per hour
     message: {
         error: 'Account Creation Limit',
         message: 'Quá nhiều tài khoản được tạo từ IP này, vui lòng thử lại sau.'

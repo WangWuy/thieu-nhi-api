@@ -342,11 +342,18 @@ const attendanceController = {
                 return res.status(404).json({ error: 'Không tìm thấy học sinh' });
             }
 
+            // Format records with VN timezone
+            const formattedRecords = records.map(record => ({
+                ...record,
+                attendanceDate: _formatDateTimeVN(record.attendanceDate, 'date'),
+                markedAt: _formatDateTimeVN(record.markedAt, 'datetime')
+            }));
+
             // Group by week for easier frontend processing
-            const groupedByWeek = _groupRecordsByWeek(records);
+            const groupedByWeek = _groupRecordsByWeek(formattedRecords);
 
             // Group by month
-            const groupedByMonth = _groupRecordsByMonth(records);
+            const groupedByMonth = _groupRecordsByMonth(formattedRecords);
 
             res.json({
                 student: {
@@ -356,7 +363,7 @@ const attendanceController = {
                     className: student.class?.name,
                     department: student.class?.department?.displayName
                 },
-                records,
+                records: formattedRecords,
                 groupedByWeek,
                 groupedByMonth,
                 pagination: {
@@ -749,7 +756,7 @@ const attendanceController = {
                     notFoundCount: notFoundRecords.length
                 };
 
-            }, { timeout: 5000 });
+            }, { timeout: 30000 });
 
             // Background score updates
             if (result.deletedCount > 0) {
@@ -894,7 +901,9 @@ function _groupRecordsByWeek(records) {
     const grouped = {};
 
     records.forEach(record => {
-        const { startDate } = getWeekRange(record.attendanceDate);
+        // Parse DD/MM/YYYY back to Date if needed
+        const dateObj = _parseDateVN(record.attendanceDate);
+        const { startDate } = getWeekRange(dateObj);
         const weekKey = startDate.toISOString().split('T')[0];
 
         if (!grouped[weekKey]) {
@@ -949,7 +958,8 @@ function _groupRecordsByMonth(records) {
     ];
 
     records.forEach(record => {
-        const date = new Date(record.attendanceDate);
+        // Parse DD/MM/YYYY back to Date if needed
+        const date = _parseDateVN(record.attendanceDate);
         const year = date.getFullYear();
         const month = date.getMonth() + 1;
         const monthKey = `${year}-${String(month).padStart(2, '0')}`;
@@ -993,6 +1003,56 @@ function _groupRecordsByMonth(records) {
     // Convert to array and sort by month descending (newest first)
     return Object.values(grouped)
         .sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+}
+
+// Helper function to format date/time to Vietnam timezone (GMT+7)
+// Format: HH:mm DD/MM/YYYY for datetime, DD/MM/YYYY for date only
+function _formatDateTimeVN(date, type = 'datetime') {
+    if (!date) return null;
+
+    const d = new Date(date);
+
+    // Convert to Vietnam time (GMT+7)
+    const vnTime = new Date(d.getTime() + (7 * 60 * 60 * 1000));
+
+    const day = String(vnTime.getUTCDate()).padStart(2, '0');
+    const month = String(vnTime.getUTCMonth() + 1).padStart(2, '0');
+    const year = vnTime.getUTCFullYear();
+
+    if (type === 'date') {
+        return `${day}/${month}/${year}`;
+    }
+
+    // datetime format
+    const hours = String(vnTime.getUTCHours()).padStart(2, '0');
+    const minutes = String(vnTime.getUTCMinutes()).padStart(2, '0');
+
+    return `${hours}:${minutes} ${day}/${month}/${year}`;
+}
+
+// Helper function to parse VN date format (DD/MM/YYYY) back to Date object
+// Supports both DD/MM/YYYY and Date objects
+function _parseDateVN(dateInput) {
+    if (!dateInput) return null;
+
+    // If already a Date object, return it
+    if (dateInput instanceof Date) {
+        return dateInput;
+    }
+
+    // If it's a string in DD/MM/YYYY format
+    if (typeof dateInput === 'string' && dateInput.includes('/')) {
+        const parts = dateInput.split('/');
+        if (parts.length === 3) {
+            const day = parseInt(parts[0]);
+            const month = parseInt(parts[1]) - 1; // Month is 0-indexed
+            const year = parseInt(parts[2]);
+            return new Date(year, month, day);
+        }
+    }
+
+    // Otherwise try to parse as normal date
+    return new Date(dateInput);
 }
 
 module.exports = attendanceController;
